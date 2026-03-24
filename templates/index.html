@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>StokSkan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
+<!-- Firebase -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import {
+    getFirestore, collection, doc, setDoc, getDoc, getDocs,
+    deleteDoc, query, orderBy, where, Timestamp
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCdwEsg6YoP9UX4FULvSzpkj2MuzM4MNXI",
+    authDomain: "barcodeapp-1ba92.firebaseapp.com",
+    projectId: "barcodeapp-1ba92",
+    storageBucket: "barcodeapp-1ba92.firebasestorage.app",
+    messagingSenderId: "98013079480",
+    appId: "1:98013079480:web:e6e0ad6b2a0f114ddcd14d",
+    measurementId: "G-8F5TEWJBCH"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  // ---- HELPERS ----
+  function daysLeft(expiryStr) {
+    if (!expiryStr) return null;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const exp = new Date(expiryStr); exp.setHours(0,0,0,0);
+    return Math.round((exp - today) / 86400000);
+  }
+
+  function getStatus(expiryStr) {
+    const d = daysLeft(expiryStr);
+    if (d === null) return 'none';
+    if (d < 0) return 'expired';
+    if (d <= 7) return 'critical';
+    if (d <= 30) return 'warning';
+    return 'ok';
+  }
+
+  function fmtDate(str) {
+    if (!str) return '—';
+    const [y,m,d] = str.split('-');
+    return `${d}.${m}.${y}`;
+  }
+
+  function fmtNow() {
+    return new Date().toLocaleString('az-AZ');
+  }
+
+  // ---- FIRESTORE CRUD ----
+  window.fbScan = async function(barcode) {
+    const ref = doc(db, 'products', barcode);
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      return { exists: true, ...snap.data() };
+    }
+    return { exists: false, barcode };
+  };
+
+  window.fbSave = async function(product) {
+    const ref = doc(db, 'products', product.barcode);
+    product.updatedAt = fmtNow();
+    if (!product.createdAt) product.createdAt = fmtNow();
+    await setDoc(ref, product, { merge: true });
+    return product;
+  };
+
+  window.fbDelete = async function(barcode) {
+    await deleteDoc(doc(db, 'products', barcode));
+  };
+
+  window.fbGetAll = async function() {
+    const snap = await getDocs(collection(db, 'products'));
+    return snap.docs.map(d => d.data());
+  };
+
+  window.fbReady = true;
+  document.dispatchEvent(new Event('fbReady'));
+</script>
+
+<style>
+:root {
+  --bg: #080810;
+  --surface: #10101c;
+  --surface2: #18182a;
+  --border: #252538;
+  --accent: #6c5ce7;
+  --accent2: #a855f7;
+  --green: #00d68f;
+  --yellow: #fbbf24;
+  --red: #f43f5e;
+  --orange: #fb923c;
+  --text: #e2e2f0;
+  --text2: #7070a0;
+  --mono: 'Space Mono', monospace;
+  --sans: 'Syne', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    linear-gradient(rgba(108,92,231,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(108,92,231,0.04) 1px, transparent 1px);
+  background-size: 36px 36px;
+  pointer-events: none; z-index: 0;
+}
+
+/* NAV */
+nav {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(8,8,16,0.92);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  height: 60px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px;
+}
+.logo {
+  font-family: var(--mono); font-size: 17px; font-weight: 700;
+  display: flex; align-items: center; gap: 8px;
+}
+.logo-pulse {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 10px var(--accent);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
+
+.nav-tabs { display: flex; gap: 2px; }
+.nav-tab {
+  padding: 7px 14px; border-radius: 8px; border: none;
+  background: transparent; color: var(--text2);
+  font-family: var(--sans); font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: all .2s; white-space: nowrap;
+}
+.nav-tab:hover { color: var(--text); background: var(--surface2); }
+.nav-tab.active { color: var(--accent); background: rgba(108,92,231,.12); }
+.badge {
+  background: var(--red); color: #fff; border-radius: 99px;
+  padding: 1px 7px; font-size: 10px; font-family: var(--mono); font-weight: 700; margin-left: 5px;
+}
+
+/* FIREBASE CONFIG WARNING */
+.config-warn {
+  background: rgba(251,146,60,.12); border: 1px solid rgba(251,146,60,.3);
+  border-radius: 12px; padding: 16px 20px; margin-bottom: 20px;
+  font-size: 13px; line-height: 1.7;
+}
+.config-warn strong { color: var(--orange); }
+.config-warn code {
+  background: var(--surface2); padding: 1px 6px; border-radius: 4px;
+  font-family: var(--mono); font-size: 12px; color: var(--accent2);
+}
+
+/* MAIN */
+.main { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 20px 14px; }
+
+/* STATS */
+.stats-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 20px; }
+@media(max-width:700px){ .stats-row{grid-template-columns:repeat(2,1fr);} .nav-tabs{display:none;} }
+
+.stat-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px; overflow: hidden; position: relative;
+}
+.stat-card::after { content:''; position:absolute; bottom:0;left:0;right:0;height:3px; }
+.stat-card.s-total::after { background: linear-gradient(90deg,var(--accent),var(--accent2)); }
+.stat-card.s-expired::after { background: var(--red); }
+.stat-card.s-critical::after { background: var(--orange); }
+.stat-card.s-warning::after { background: var(--yellow); }
+.stat-num { font-family:var(--mono); font-size:30px; font-weight:700; line-height:1; margin-bottom:5px; }
+.s-total .stat-num{color:var(--accent)} .s-expired .stat-num{color:var(--red)}
+.s-critical .stat-num{color:var(--orange)} .s-warning .stat-num{color:var(--yellow)}
+.stat-label { font-size:11px; color:var(--text2); font-weight:700; text-transform:uppercase; letter-spacing:.5px; }
+
+/* TAB CONTENT */
+.tab-content { display:none; }
+.tab-content.active { display:block; }
+
+/* SCAN GRID */
+.scan-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+@media(max-width:800px){ .scan-grid{grid-template-columns:1fr;} }
+
+.card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:22px; }
+.card-title { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--text2); margin-bottom:14px; }
+
+/* SCANNER */
+#scanner-container {
+  border-radius:12px; overflow:hidden; background:#000;
+  aspect-ratio:4/3; display:flex; align-items:center; justify-content:center; position:relative;
+}
+#video { width:100%; height:100%; object-fit:cover; }
+.scan-overlay { position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none; }
+.scan-frame { width:60%;aspect-ratio:3/2;border:2px solid var(--accent);border-radius:8px;box-shadow:0 0 0 1000px rgba(0,0,0,.5); }
+.scan-line { position:absolute;width:60%;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:scanline 2s ease-in-out infinite;box-shadow:0 0 8px var(--accent); }
+@keyframes scanline{0%,100%{transform:translateY(-28px);opacity:0}20%,80%{opacity:1}50%{transform:translateY(28px)}}
+.scan-placeholder { color:var(--text2);font-size:13px;text-align:center;padding:16px; }
+
+.scanner-btn {
+  margin-top:10px; width:100%; padding:11px;
+  border-radius:9px; border:1px solid var(--accent);
+  background:rgba(108,92,231,.1); color:var(--accent);
+  font-family:var(--sans); font-size:14px; font-weight:700; cursor:pointer; transition:all .2s;
+}
+.scanner-btn:hover{background:rgba(108,92,231,.2)}
+.scanner-btn.stop{border-color:var(--red);color:var(--red);background:rgba(244,63,94,.1)}
+
+/* FORM INPUTS */
+.ig { margin-bottom:12px; }
+.lbl { display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);margin-bottom:5px; }
+.inp {
+  width:100%;padding:9px 12px;border-radius:9px;border:1px solid var(--border);
+  background:var(--surface2);color:var(--text);font-family:var(--sans);font-size:14px;
+  transition:border-color .2s;outline:none;
+}
+.inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(108,92,231,.12)}
+.inp.mono{font-family:var(--mono);letter-spacing:1px}
+
+.btn {
+  width:100%;padding:12px;border-radius:9px;border:none;
+  font-family:var(--sans);font-size:14px;font-weight:700;cursor:pointer;transition:all .2s;
+}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+.btn-primary:hover{opacity:.9;transform:translateY(-1px);box-shadow:0 8px 20px rgba(108,92,231,.3)}
+.btn-secondary{background:var(--surface2);color:var(--text2);border:1px solid var(--border)}
+.btn-secondary:hover{color:var(--text)}
+
+/* CONFIRM BOX */
+.confirm-box {
+  background:rgba(251,146,60,.08);border:1px solid rgba(251,146,60,.25);
+  border-radius:10px;padding:14px;margin-bottom:14px;
+}
+.confirm-box .ctitle{font-weight:700;color:var(--orange);margin-bottom:5px;font-size:14px;}
+.confirm-box .cdetail{font-size:12px;color:var(--text2);line-height:1.6;}
+.confirm-btns{display:flex;gap:8px;margin-top:10px;}
+.confirm-btns .btn{font-size:12px;padding:7px}
+
+/* SEARCH */
+.search-row{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
+.search-row .inp{flex:1;min-width:180px;}
+.filter-btns{display:flex;gap:6px;flex-wrap:wrap;}
+.fbtn{
+  padding:7px 12px;border-radius:7px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text2);
+  font-family:var(--sans);font-size:11px;font-weight:700;cursor:pointer;transition:all .2s;
+}
+.fbtn:hover,.fbtn.active{border-color:var(--accent);color:var(--accent);background:rgba(108,92,231,.08)}
+.fbtn.fe.active{border-color:var(--red);color:var(--red);background:rgba(244,63,94,.08)}
+.fbtn.fc.active{border-color:var(--orange);color:var(--orange);background:rgba(251,146,60,.08)}
+.fbtn.fw.active{border-color:var(--yellow);color:var(--yellow);background:rgba(251,191,36,.08)}
+
+/* EXCEL BTNS */
+.excel-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;}
+.xbtn{
+  display:flex;align-items:center;gap:7px;padding:9px 16px;
+  border-radius:9px;border:1px solid var(--border);background:var(--surface);
+  font-family:var(--sans);font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;
+  color:var(--text);
+}
+.xbtn.exp{border-color:rgba(0,214,143,.3);color:var(--green);background:rgba(0,214,143,.05)}
+.xbtn.exp:hover{background:rgba(0,214,143,.1)}
+.xbtn.imp{border-color:rgba(108,92,231,.3);color:var(--accent);background:rgba(108,92,231,.05)}
+.xbtn.imp:hover{background:rgba(108,92,231,.1)}
+.xbtn input{display:none}
+
+/* PRODUCTS GRID */
+.products-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;}
+.pcard{
+  background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  overflow:hidden;transition:all .2s;
+}
+.pcard:hover{border-color:var(--accent);transform:translateY(-2px);}
+.pcard.expired{border-color:rgba(244,63,94,.35)}
+.pcard.critical{border-color:rgba(251,146,60,.35)}
+.pcard.warning{border-color:rgba(251,191,36,.25)}
+.pcard-img{
+  width:100%;height:150px;background:var(--surface2);
+  display:flex;align-items:center;justify-content:center;font-size:36px;
+}
+.pcard-img img{width:100%;height:100%;object-fit:cover}
+.pcard-body{padding:14px}
+.pname{font-size:14px;font-weight:700;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pbarcode{font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:8px}
+.pexpiry{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.exp-date{font-size:12px;color:var(--text2)}
+.sbadge{
+  padding:2px 9px;border-radius:99px;font-size:10px;font-weight:700;
+  font-family:var(--mono);text-transform:uppercase;
+}
+.sbadge.ok{background:rgba(0,214,143,.12);color:var(--green)}
+.sbadge.warning{background:rgba(251,191,36,.12);color:var(--yellow)}
+.sbadge.critical{background:rgba(251,146,60,.12);color:var(--orange)}
+.sbadge.expired{background:rgba(244,63,94,.12);color:var(--red)}
+.sbadge.none{background:var(--surface2);color:var(--text2)}
+.days-info{font-family:var(--mono);font-size:10px;margin-bottom:10px}
+.pactions{display:flex;gap:7px}
+.abtn{
+  flex:1;padding:7px;border-radius:7px;border:1px solid var(--border);
+  background:transparent;color:var(--text2);font-family:var(--sans);
+  font-size:11px;font-weight:600;cursor:pointer;transition:all .2s;
+}
+.abtn.edit:hover{color:var(--accent);border-color:var(--accent)}
+.abtn.del:hover{color:var(--red);border-color:var(--red)}
+
+/* ALERTS */
+.alerts-list{display:flex;flex-direction:column;gap:10px}
+.aitem{
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  padding:14px;display:flex;align-items:center;gap:14px;
+}
+.aitem.critical{border-color:rgba(251,146,60,.35)}
+.aitem.expired{border-color:rgba(244,63,94,.35)}
+.aicon{font-size:26px;flex-shrink:0}
+.ainfo{flex:1}
+.aname{font-weight:700;font-size:14px}
+.adate{font-size:12px;color:var(--text2);margin-top:2px}
+.abc{font-family:var(--mono);font-size:10px;color:var(--text2);margin-top:3px}
+
+/* MODAL */
+.modal-overlay{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);
+  backdrop-filter:blur(6px);z-index:500;align-items:center;justify-content:center;padding:14px;
+}
+.modal-overlay.open{display:flex}
+.modal{
+  background:var(--surface);border:1px solid var(--border);border-radius:18px;
+  padding:24px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;
+  animation:mIn .25s ease;
+}
+@keyframes mIn{from{transform:scale(.96) translateY(16px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}
+.modal-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.modal-title{font-size:17px;font-weight:800}
+.modal-close{
+  width:30px;height:30px;border-radius:7px;border:1px solid var(--border);
+  background:transparent;color:var(--text2);cursor:pointer;font-size:16px;
+  display:flex;align-items:center;justify-content:center;
+}
+.modal-close:hover{color:var(--text)}
+
+/* TOAST */
+.toast-wrap{position:fixed;bottom:22px;right:22px;z-index:999;display:flex;flex-direction:column;gap:8px}
+.toast{
+  padding:12px 18px;border-radius:10px;font-size:13px;font-weight:600;
+  max-width:340px;animation:tIn .25s ease;border-left:4px solid;backdrop-filter:blur(10px);
+}
+.toast.success{background:rgba(0,214,143,.12);border-color:var(--green);color:var(--green)}
+.toast.error{background:rgba(244,63,94,.12);border-color:var(--red);color:var(--red)}
+.toast.warning{background:rgba(251,191,36,.12);border-color:var(--yellow);color:var(--yellow)}
+.toast.info{background:rgba(108,92,231,.12);border-color:var(--accent);color:var(--accent)}
+@keyframes tIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+
+/* LOADING */
+.loading{display:flex;align-items:center;justify-content:center;padding:40px;color:var(--text2);gap:10px}
+.spin{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* EMPTY */
+.empty{text-align:center;padding:50px 20px;color:var(--text2)}
+.empty .eicon{font-size:44px;margin-bottom:10px}
+.empty h3{font-size:17px;color:var(--text);margin-bottom:6px}
+.empty p{font-size:13px}
+
+/* MOBILE NAV */
+.mob-nav{
+  display:none;position:fixed;bottom:0;left:0;right:0;
+  background:rgba(8,8,16,.95);border-top:1px solid var(--border);
+  padding:6px 0 calc(6px + env(safe-area-inset-bottom));
+  z-index:100;justify-content:space-around;
+}
+@media(max-width:700px){.mob-nav{display:flex}.main{padding-bottom:75px}}
+.mtab{
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:5px 10px;border:none;background:transparent;
+  color:var(--text2);font-family:var(--sans);font-size:9px;font-weight:700;cursor:pointer;transition:all .2s;
+}
+.mtab.active{color:var(--accent)}
+.mtab .mi{font-size:19px}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo"><div class="logo-pulse"></div>StokSkan</div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="switchTab('scan')">📷 Skan</button>
+    <button class="nav-tab" onclick="switchTab('products')">📦 Məhsullar</button>
+    <button class="nav-tab" onclick="switchTab('alerts')">⚠️ Xəbərdarlıq <span class="badge" id="alertBadge" style="display:none">0</span></button>
+  </div>
+</nav>
+
+<div class="main">
+
+  <!-- FIREBASE CONFIG WARNING -->
+  <div class="config-warn" id="configWarn">
+    ⚙️ <strong>Firebase konfiqurasiyası tələb olunur!</strong><br>
+    <code>index.html</code> faylında <code>firebaseConfig</code> hissəsini öz Firebase layihənizin məlumatları ilə doldurun.<br>
+    <a href="https://console.firebase.google.com" target="_blank" style="color:var(--accent)">console.firebase.google.com</a> → Layihə → Project Settings → Your apps → Config
+  </div>
+
+  <!-- STATS -->
+  <div class="stats-row">
+    <div class="stat-card s-total"><div class="stat-num" id="sTotal">—</div><div class="stat-label">Cəmi</div></div>
+    <div class="stat-card s-expired"><div class="stat-num" id="sExpired">—</div><div class="stat-label">Müddəti Bitib</div></div>
+    <div class="stat-card s-critical"><div class="stat-num" id="sCritical">—</div><div class="stat-label">Kritik 7 gün</div></div>
+    <div class="stat-card s-warning"><div class="stat-num" id="sWarning">—</div><div class="stat-label">Diqqət 30 gün</div></div>
+  </div>
+
+  <!-- SCAN TAB -->
+  <div id="tab-scan" class="tab-content active">
+    <div class="scan-grid">
+
+      <div class="card">
+        <div class="card-title">📷 Barkod Skan</div>
+        <div id="scanner-container">
+          <video id="video" autoplay playsinline muted></video>
+          <div class="scan-overlay" id="scanOverlay" style="display:none">
+            <div class="scan-frame"></div>
+            <div class="scan-line"></div>
+          </div>
+          <div class="scan-placeholder" id="scanPh">Kameranı başlatmaq üçün aşağıdakı düyməyə basın</div>
+        </div>
+        <button class="scanner-btn" id="startBtn" onclick="startScanner()">▶ Kameranı Başlat</button>
+        <div style="margin-top:14px">
+          <div class="lbl">Əl ilə daxil et</div>
+          <div style="display:flex;gap:8px">
+            <input type="text" class="inp mono" id="manualInput" placeholder="Barkod..." onkeydown="if(event.key==='Enter')checkManual()">
+            <button class="btn btn-primary" style="width:auto;padding:9px 14px" onclick="checkManual()">Yoxla</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">➕ Məhsul Əlavə Et</div>
+
+        <div class="confirm-box" id="existWarn" style="display:none">
+          <div class="ctitle">⚠️ Məhsul Mövcuddur</div>
+          <div class="cdetail" id="existDetail"></div>
+          <div class="confirm-btns">
+            <button class="btn btn-primary" onclick="doUpdate()">✏️ Yenilə</button>
+            <button class="btn btn-secondary" onclick="cancelExist()">Ləğv Et</button>
+          </div>
+        </div>
+
+        <div class="ig"><label class="lbl">Barkod *</label><input type="text" class="inp mono" id="fBarcode" placeholder="EAN, QR, UPC..."></div>
+        <div class="ig"><label class="lbl">Məhsulun Adı *</label><input type="text" class="inp" id="fName" placeholder="Ad..."></div>
+        <div class="ig"><label class="lbl">MHT (Son İstifadə Tarixi)</label><input type="date" class="inp" id="fExpiry"></div>
+        <div class="ig"><label class="lbl">Qeydlər</label><input type="text" class="inp" id="fNotes" placeholder="İstəyə bağlı..."></div>
+        <button class="btn btn-primary" onclick="saveProduct()">💾 Yadda Saxla</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PRODUCTS TAB -->
+  <div id="tab-products" class="tab-content">
+    <div class="excel-row">
+      <button class="xbtn exp" onclick="exportExcel()">📊 Excel Export</button>
+      <label class="xbtn imp">📥 Excel Import<input type="file" accept=".xlsx,.xls" onchange="importExcel(this)"></label>
+    </div>
+    <div class="search-row">
+      <input type="text" class="inp" id="searchInp" placeholder="Ad və ya barkod axtar..." oninput="renderProducts()">
+      <div class="filter-btns">
+        <button class="fbtn active" id="fa" onclick="setFilter('')">Hamısı</button>
+        <button class="fbtn fe" id="fe" onclick="setFilter('expired')">Bitib</button>
+        <button class="fbtn fc" id="fc" onclick="setFilter('critical')">Kritik</button>
+        <button class="fbtn fw" id="fw" onclick="setFilter('warning')">Diqqət</button>
+      </div>
+    </div>
+    <div class="products-grid" id="productsGrid">
+      <div class="loading"><div class="spin"></div> Yüklənir...</div>
+    </div>
+  </div>
+
+  <!-- ALERTS TAB -->
+  <div id="tab-alerts" class="tab-content">
+    <div class="alerts-list" id="alertsList">
+      <div class="loading"><div class="spin"></div> Yüklənir...</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- MOBILE NAV -->
+<div class="mob-nav">
+  <button class="mtab active" id="mt-scan" onclick="switchTab('scan')"><span class="mi">📷</span>Skan</button>
+  <button class="mtab" id="mt-products" onclick="switchTab('products')"><span class="mi">📦</span>Məhsullar</button>
+  <button class="mtab" id="mt-alerts" onclick="switchTab('alerts')"><span class="mi">⚠️</span>Xəbərdarlıq</button>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">✏️ Redaktə Et</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="ig"><label class="lbl">Məhsulun Adı *</label><input type="text" class="inp" id="eName"></div>
+    <div class="ig"><label class="lbl">MHT Tarixi</label><input type="date" class="inp" id="eExpiry"></div>
+    <div class="ig"><label class="lbl">Qeydlər</label><input type="text" class="inp" id="eNotes"></div>
+    <input type="hidden" id="eBarcode">
+    <button class="btn btn-primary" onclick="updateProduct()">💾 Yadda Saxla</button>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script type="module">
+// Wait for SheetJS
+</script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+
+<script>
+let allProducts = [];
+let currentFilter = '';
+let existingProduct = null;
+let codeReader = null;
+let scanActive = false;
+let lastScanned = '';
+
+// ---- UTILS ----
+function daysLeft(exp) {
+  if (!exp) return null;
+  const t = new Date(); t.setHours(0,0,0,0);
+  const e = new Date(exp); e.setHours(0,0,0,0);
+  return Math.round((e - t) / 86400000);
+}
+function getStatus(exp) {
+  const d = daysLeft(exp);
+  if (d === null) return 'none';
+  if (d < 0) return 'expired';
+  if (d <= 7) return 'critical';
+  if (d <= 30) return 'warning';
+  return 'ok';
+}
+function fmtDate(str) {
+  if (!str) return '—';
+  const [y,m,d] = str.split('-');
+  return `${d}.${m}.${y}`;
+}
+
+// ---- FIREBASE WAIT ----
+function waitFb(fn) {
+  if (window.fbReady) fn();
+  else document.addEventListener('fbReady', fn);
+}
+
+// ---- LOAD ALL ----
+async function loadAll() {
+  try {
+    allProducts = await window.fbGetAll();
+    allProducts.sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||''));
+    updateStats();
+    renderProducts();
+    renderAlerts();
+  } catch(e) {
+    toast('Firebase xətası: ' + e.message, 'error');
+  }
+}
+
+// ---- STATS ----
+function updateStats() {
+  const total = allProducts.length;
+  const expired = allProducts.filter(p => getStatus(p.expiry_date) === 'expired').length;
+  const critical = allProducts.filter(p => getStatus(p.expiry_date) === 'critical').length;
+  const warning = allProducts.filter(p => getStatus(p.expiry_date) === 'warning').length;
+  document.getElementById('sTotal').textContent = total;
+  document.getElementById('sExpired').textContent = expired;
+  document.getElementById('sCritical').textContent = critical;
+  document.getElementById('sWarning').textContent = warning;
+  const alertCount = expired + critical;
+  const badge = document.getElementById('alertBadge');
+  badge.textContent = alertCount;
+  badge.style.display = alertCount > 0 ? 'inline' : 'none';
+}
+
+// ---- TABS ----
+function switchTab(t) {
+  document.querySelectorAll('.tab-content').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.mtab').forEach(x => x.classList.remove('active'));
+  document.getElementById('tab-' + t).classList.add('active');
+  const tabs = ['scan','products','alerts'];
+  const i = tabs.indexOf(t);
+  document.querySelectorAll('.nav-tab')[i]?.classList.add('active');
+  document.getElementById('mt-' + t)?.classList.add('active');
+  if (t !== 'scan' && scanActive) stopScanner();
+  if (t === 'products' || t === 'alerts') loadAll();
+}
+
+// ---- SCANNER ----
+function startScanner() {
+  if (!window.ZXing) { toast('Kamera kitabxanası yüklənmir', 'error'); return; }
+  codeReader = new ZXing.BrowserMultiFormatReader();
+  scanActive = true;
+  const btn = document.getElementById('startBtn');
+  btn.textContent = '⏹ Dayandır'; btn.classList.add('stop'); btn.onclick = stopScanner;
+  document.getElementById('scanPh').style.display = 'none';
+  document.getElementById('scanOverlay').style.display = 'flex';
+  codeReader.decodeFromVideoDevice(null, 'video', (result, err) => {
+    if (result) {
+      const code = result.getText();
+      if (code !== lastScanned) { lastScanned = code; onBarcodeFound(code); }
+    }
+  });
+}
+
+function stopScanner() {
+  if (codeReader) { codeReader.reset(); codeReader = null; }
+  scanActive = false;
+  const btn = document.getElementById('startBtn');
+  btn.textContent = '▶ Kameranı Başlat'; btn.classList.remove('stop'); btn.onclick = startScanner;
+  document.getElementById('scanOverlay').style.display = 'none';
+  document.getElementById('scanPh').style.display = 'block';
+  const v = document.getElementById('video');
+  if (v.srcObject) { v.srcObject.getTracks().forEach(t => t.stop()); v.srcObject = null; }
+}
+
+function checkManual() {
+  const v = document.getElementById('manualInput').value.trim();
+  if (v) { onBarcodeFound(v); document.getElementById('manualInput').value = ''; }
+}
+
+async function onBarcodeFound(barcode) {
+  if (scanActive) stopScanner();
+  document.getElementById('fBarcode').value = barcode;
+  toast('Barkod: ' + barcode, 'info');
+  try {
+    const data = await window.fbScan(barcode);
+    if (data.exists) {
+      existingProduct = data;
+      let msg = `"${data.name}" artıq qeydiyyatdadır.`;
+      if (data.expiry_date) {
+        msg += ` MHT: ${fmtDate(data.expiry_date)}.`;
+        const d = daysLeft(data.expiry_date);
+        if (d < 0) msg += ` ⛔ ${Math.abs(d)} gün əvvəl bitib!`;
+        else if (d <= 7) msg += ` 🔴 ${d} gün qalıb!`;
+        else if (d <= 30) msg += ` 🟡 ${d} gün qalıb.`;
+      }
+      document.getElementById('existDetail').textContent = msg;
+      document.getElementById('existWarn').style.display = 'block';
+      document.getElementById('fName').value = data.name;
+      document.getElementById('fExpiry').value = data.expiry_date || '';
+      document.getElementById('fNotes').value = data.notes || '';
+    } else {
+      document.getElementById('existWarn').style.display = 'none';
+      existingProduct = null;
+    }
+  } catch(e) {
+    toast('Firebase xətası', 'error');
+  }
+  switchTab('scan');
+}
+
+function doUpdate() {
+  document.getElementById('existWarn').style.display = 'none';
+  toast('MHT-ni yeniləyə bilərsiniz', 'info');
+}
+
+function cancelExist() {
+  document.getElementById('existWarn').style.display = 'none';
+  existingProduct = null; lastScanned = '';
+  ['fBarcode','fName','fExpiry','fNotes'].forEach(id => document.getElementById(id).value = '');
+}
+
+// ---- SAVE ----
+async function saveProduct() {
+  const barcode = document.getElementById('fBarcode').value.trim();
+  const name = document.getElementById('fName').value.trim();
+  const expiry = document.getElementById('fExpiry').value;
+  const notes = document.getElementById('fNotes').value.trim();
+  if (!barcode || !name) { toast('Barkod və ad mütləqdir!', 'error'); return; }
+  try {
+    const existing = allProducts.find(p => p.barcode === barcode);
+    await window.fbSave({ barcode, name, expiry_date: expiry || null, notes, createdAt: existing?.createdAt || null });
+    toast(existing ? '✅ Yeniləndi!' : '✅ Əlavə edildi!', 'success');
+    ['fBarcode','fName','fExpiry','fNotes'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('existWarn').style.display = 'none';
+    existingProduct = null; lastScanned = '';
+    await loadAll();
+  } catch(e) {
+    toast('Saxlama xətası: ' + e.message, 'error');
+  }
+}
+
+// ---- RENDER PRODUCTS ----
+function setFilter(f) {
+  currentFilter = f;
+  ['fa','fe','fc','fw'].forEach(id => document.getElementById(id)?.classList.remove('active'));
+  const map = {'':'fa','expired':'fe','critical':'fc','warning':'fw'};
+  document.getElementById(map[f])?.classList.add('active');
+  renderProducts();
+}
+
+function renderProducts() {
+  const search = (document.getElementById('searchInp')?.value || '').toLowerCase();
+  let list = allProducts.filter(p => {
+    const matchSearch = !search || p.name?.toLowerCase().includes(search) || p.barcode?.includes(search);
+    const matchFilter = !currentFilter || getStatus(p.expiry_date) === currentFilter;
+    return matchSearch && matchFilter;
+  });
+
+  const grid = document.getElementById('productsGrid');
+  if (!list.length) {
+    grid.innerHTML = `<div class="empty"><div class="eicon">🔍</div><h3>Nəticə tapılmadı</h3><p>Başqa axtarış sınayın</p></div>`;
+    return;
+  }
+
+  const statusTxt = {ok:'Normal',warning:'Diqqət',critical:'Kritik',expired:'Bitib'};
+  const statusColor = {ok:'var(--green)',warning:'var(--yellow)',critical:'var(--orange)',expired:'var(--red)'};
+
+  grid.innerHTML = list.map(p => {
+    const st = getStatus(p.expiry_date);
+    const d = daysLeft(p.expiry_date);
+    const daysStr = d !== null ? (d < 0 ? `${Math.abs(d)} gün əvvəl bitib` : `${d} gün qalıb`) : '';
+    return `
+    <div class="pcard ${st}">
+      <div class="pcard-img">${p.image_url ? `<img src="${p.image_url}" alt="${p.name}" loading="lazy">` : '📦'}</div>
+      <div class="pcard-body">
+        <div class="pname" title="${p.name}">${p.name}</div>
+        <div class="pbarcode">${p.barcode}</div>
+        <div class="pexpiry">
+          <span class="exp-date">MHT: ${fmtDate(p.expiry_date)}</span>
+          <span class="sbadge ${p.expiry_date ? st : 'none'}">${p.expiry_date ? (statusTxt[st]||'—') : '—'}</span>
+        </div>
+        ${daysStr ? `<div class="days-info" style="color:${statusColor[st]||'var(--text2)'}">${daysStr}</div>` : ''}
+        <div class="pactions">
+          <button class="abtn edit" onclick="openEdit('${p.barcode}')">✏️ Redaktə</button>
+          <button class="abtn del" onclick="delProduct('${p.barcode}','${p.name.replace(/'/g,"\\'")}')">🗑 Sil</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ---- EDIT ----
+function openEdit(barcode) {
+  const p = allProducts.find(x => x.barcode === barcode);
+  if (!p) return;
+  document.getElementById('eBarcode').value = barcode;
+  document.getElementById('eName').value = p.name;
+  document.getElementById('eExpiry').value = p.expiry_date || '';
+  document.getElementById('eNotes').value = p.notes || '';
+  document.getElementById('editModal').classList.add('open');
+}
+function closeModal() { document.getElementById('editModal').classList.remove('open'); }
+async function updateProduct() {
+  const barcode = document.getElementById('eBarcode').value;
+  const name = document.getElementById('eName').value.trim();
+  const expiry = document.getElementById('eExpiry').value;
+  const notes = document.getElementById('eNotes').value.trim();
+  if (!name) { toast('Ad boş ola bilməz', 'error'); return; }
+  const existing = allProducts.find(p => p.barcode === barcode);
+  await window.fbSave({ barcode, name, expiry_date: expiry || null, notes, createdAt: existing?.createdAt || null });
+  toast('✅ Yeniləndi!', 'success');
+  closeModal();
+  await loadAll();
+}
+
+// ---- DELETE ----
+async function delProduct(barcode, name) {
+  if (!confirm(`"${name}" silinsin?`)) return;
+  await window.fbDelete(barcode);
+  toast('🗑 Silindi', 'warning');
+  await loadAll();
+}
+
+// ---- ALERTS ----
+function renderAlerts() {
+  const alerts = allProducts
+    .filter(p => p.expiry_date && ['expired','critical','warning'].includes(getStatus(p.expiry_date)))
+    .sort((a,b) => (a.expiry_date||'').localeCompare(b.expiry_date||''));
+
+  const list = document.getElementById('alertsList');
+  if (!alerts.length) {
+    list.innerHTML = `<div class="empty"><div class="eicon">✅</div><h3>Xəbərdarlıq yoxdur</h3><p>Bütün məhsullar normaldır</p></div>`;
+    return;
+  }
+  const icons = {expired:'⛔',critical:'🔴',warning:'🟡'};
+  const stTxt = {expired:'Bitib',critical:'Kritik',warning:'Diqqət'};
+  list.innerHTML = alerts.map(a => {
+    const st = getStatus(a.expiry_date);
+    const d = daysLeft(a.expiry_date);
+    const dStr = d < 0 ? `${Math.abs(d)} gün əvvəl bitib!` : `${d} gün qalıb`;
+    return `
+    <div class="aitem ${st}">
+      <div class="aicon">${icons[st]}</div>
+      <div class="ainfo">
+        <div class="aname">${a.name}</div>
+        <div class="adate">MHT: ${fmtDate(a.expiry_date)} — ${dStr}</div>
+        <div class="abc">${a.barcode}</div>
+      </div>
+      <span class="sbadge ${st}">${stTxt[st]}</span>
+    </div>`;
+  }).join('');
+}
+
+// ---- EXCEL EXPORT ----
+async function exportExcel() {
+  if (!window.XLSX) { toast('XLSX kitabxanası yüklənmir', 'error'); return; }
+  await loadAll();
+  const statusTxt = {ok:'Normal',warning:'Diqqət',critical:'Kritik',expired:'Bitib',none:'—'};
+  const data = [
+    ['Barkod','Məhsulun Adı','MHT Tarixi','Qalan Günlər','Vəziyyət','Qeydlər','Əlavə Edilib','Yenilənib'],
+    ...allProducts.map(p => {
+      const d = daysLeft(p.expiry_date);
+      return [p.barcode, p.name, fmtDate(p.expiry_date), d !== null ? d : '—', statusTxt[getStatus(p.expiry_date)], p.notes||'', p.createdAt||'', p.updatedAt||''];
+    })
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [20,35,15,15,12,30,22,22].map(w => ({wch:w}));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Məhsullar');
+  XLSX.writeFile(wb, `mehsullar_${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast('📊 Excel yükləndi!', 'success');
+}
+
+// ---- EXCEL IMPORT ----
+async function importExcel(input) {
+  if (!input.files[0]) return;
+  const reader = new FileReader();
+  reader.onload = async e => {
+    try {
+      const wb = XLSX.read(e.target.result, {type:'binary', cellDates:true});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+      let added = 0, updated = 0, errors = [];
+      for (let i = 1; i < rows.length; i++) {
+        const [barcode, name, expiryRaw, , , notes] = rows[i];
+        if (!barcode && !name) continue;
+        const bc = String(barcode||'').trim();
+        const nm = String(name||'').trim();
+        if (!bc || !nm) { errors.push(`Sətir ${i+1}: boş`); continue; }
+        let expiry = null;
+        if (expiryRaw) {
+          if (expiryRaw instanceof Date) {
+            expiry = expiryRaw.toISOString().slice(0,10);
+          } else {
+            const s = String(expiryRaw).trim();
+            const match = s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+            if (match) expiry = `${match[3]}-${match[2]}-${match[1]}`;
+            else if (/^\d{4}-\d{2}-\d{2}$/.test(s)) expiry = s;
+          }
+        }
+        const existing = allProducts.find(p => p.barcode === bc);
+        await window.fbSave({ barcode: bc, name: nm, expiry_date: expiry, notes: String(notes||'').trim(), createdAt: existing?.createdAt || null });
+        existing ? updated++ : added++;
+      }
+      toast(`✅ ${added} əlavə, ${updated} yeniləndi`, 'success');
+      if (errors.length) errors.forEach(er => toast(er, 'warning'));
+      await loadAll();
+    } catch(err) {
+      toast('Import xətası: ' + err.message, 'error');
+    }
+    input.value = '';
+  };
+  reader.readAsBinaryString(input.files[0]);
+}
+
+// ---- TOAST ----
+function toast(msg, type = 'info') {
+  const c = document.getElementById('toastWrap');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => { t.style.opacity='0'; t.style.transform='translateX(100%)'; t.style.transition='.3s'; setTimeout(()=>t.remove(), 300); }, 3500);
+}
+
+// ---- INIT ----
+waitFb(() => {
+  // Hide config warning if config is filled
+  const cfg = document.querySelector('#configWarn');
+  if (!document.querySelector('script[type="module"]')?.textContent?.includes('BURAYA_API_KEY')) {
+    cfg.style.display = 'none';
+  }
+  loadAll();
+});
+</script>
+</body>
+</html>
