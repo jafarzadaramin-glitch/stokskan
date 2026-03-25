@@ -599,23 +599,103 @@ function switchTab(t) {
 }
 
 // ---- SCANNER ----
-function startScanner() {
-  if (!window.ZXing) { toast('Kamera kitabxanası yüklənmir', 'error'); return; }
-  codeReader = new ZXing.BrowserMultiFormatReader();
+// ---- SCANNER ENGINE ----
+// 1) BarcodeDetector API (Chrome/Android native - ən güclü, Gamma Scan ilə eyni motor)
+// 2) ZXing fallback (digər brauzerlər üçün)
+
+let barcodeDetectorInterval = null;
+
+async function startScanner() {
   scanActive = true;
   const btn = document.getElementById('startBtn');
   btn.textContent = '⏹ Dayandır'; btn.classList.add('stop'); btn.onclick = stopScanner;
   document.getElementById('scanPh').style.display = 'none';
   document.getElementById('scanOverlay').style.display = 'flex';
-  codeReader.decodeFromVideoDevice(null, 'video', (result, err) => {
-    if (result) {
-      const code = result.getText();
-      if (code !== lastScanned) { lastScanned = code; onBarcodeFound(code); }
+
+  const videoEl = document.getElementById('video');
+
+  // Yüksək keyfiyyətli kamera ayarları (arxa kamera, autofocus, yüksək həll)
+  const constraints = {
+    video: {
+      facingMode: { ideal: 'environment' },
+      width: { ideal: 1920, min: 1280 },
+      height: { ideal: 1080, min: 720 },
+      focusMode: { ideal: 'continuous' },
+      advanced: [{ zoom: 1 }]
     }
-  });
+  };
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+  } catch(e) {
+    // Sadə fallback
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    } catch(e2) {
+      toast('Kameraya giriş mümkün olmadı: ' + e2.message, 'error');
+      stopScanner(); return;
+    }
+  }
+
+  videoEl.srcObject = stream;
+  await videoEl.play();
+
+  // Autofocus + Torch cəhdi (Android üçün)
+  try {
+    const track = stream.getVideoTracks()[0];
+    const caps = track.getCapabilities();
+    const settings = {};
+    if (caps.focusMode && caps.focusMode.includes('continuous')) settings.focusMode = 'continuous';
+    if (Object.keys(settings).length) await track.applyConstraints({ advanced: [settings] });
+  } catch(e) { /* ignore */ }
+
+  // BarcodeDetector API mövcuddursa istifadə et (Chrome 83+, Android Chrome)
+  if ('BarcodeDetector' in window) {
+    toast('🚀 Native barkod oxuyucu aktiv', 'info');
+    const detector = new BarcodeDetector({
+      formats: [
+        'ean_13', 'ean_8', 'code_128', 'code_39', 'code_93',
+        'upc_a', 'upc_e', 'qr_code', 'data_matrix', 'itf',
+        'codabar', 'aztec', 'pdf417'
+      ]
+    });
+
+    barcodeDetectorInterval = setInterval(async () => {
+      if (!scanActive) { clearInterval(barcodeDetectorInterval); return; }
+      try {
+        const barcodes = await detector.detect(videoEl);
+        if (barcodes.length > 0) {
+          const code = barcodes[0].rawValue;
+          if (code && code !== lastScanned) {
+            lastScanned = code;
+            onBarcodeFound(code);
+          }
+        }
+      } catch(e) { /* frame skip */ }
+    }, 150); // hər 150ms-də bir yoxla
+
+  } else {
+    // ZXing fallback
+    if (!window.ZXing) { toast('Kamera kitabxanası yüklənmir', 'error'); stopScanner(); return; }
+    toast('ZXing oxuyucu aktiv', 'info');
+    const hints = new Map();
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    hints.set(ZXing.DecodeHintType.ALSO_INVERTED, true);
+    codeReader = new ZXing.BrowserMultiFormatReader(hints);
+    codeReader.decodeFromStream(stream, videoEl, (result, err) => {
+      if (result) {
+        const code = result.getText();
+        if (code !== lastScanned) { lastScanned = code; onBarcodeFound(code); }
+      }
+    });
+  }
 }
 
 function stopScanner() {
+  // BarcodeDetector interval dayandır
+  if (barcodeDetectorInterval) { clearInterval(barcodeDetectorInterval); barcodeDetectorInterval = null; }
+  // ZXing dayandır
   if (codeReader) { codeReader.reset(); codeReader = null; }
   scanActive = false;
   const btn = document.getElementById('startBtn');
