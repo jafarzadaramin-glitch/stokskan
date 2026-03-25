@@ -2,18 +2,19 @@
 <html lang="az">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>StokSkan</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+
 <!-- Firebase -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import {
-    getFirestore, collection, doc, setDoc, getDoc, getDocs,
-    deleteDoc, query, orderBy, where, Timestamp
-  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getStorage, ref as sRef, uploadString, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyCdwEsg6YoP9UX4FULvSzpkj2MuzM4MNXI",
@@ -21,65 +22,62 @@
     projectId: "barcodeapp-1ba92",
     storageBucket: "barcodeapp-1ba92.firebasestorage.app",
     messagingSenderId: "98013079480",
-    appId: "1:98013079480:web:e6e0ad6b2a0f114ddcd14d",
-    measurementId: "G-8F5TEWJBCH"
+    appId: "1:98013079480:web:e6e0ad6b2a0f114ddcd14d"
   };
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
+  const auth = getAuth(app);
+  const storage = getStorage(app);
+  const provider = new GoogleAuthProvider();
 
-  // ---- HELPERS ----
-  function daysLeft(expiryStr) {
-    if (!expiryStr) return null;
-    const today = new Date(); today.setHours(0,0,0,0);
-    const exp = new Date(expiryStr); exp.setHours(0,0,0,0);
-    return Math.round((exp - today) / 86400000);
-  }
+  window.fbSignIn = async () => { try { await signInWithPopup(auth, provider); } catch(e) { alert(e.message); } };
+  window.fbSignOut = async () => { await signOut(auth); };
 
-  function getStatus(expiryStr) {
-    const d = daysLeft(expiryStr);
-    if (d === null) return 'none';
-    if (d < 0) return 'expired';
-    if (d <= 7) return 'critical';
-    if (d <= 30) return 'warning';
-    return 'ok';
-  }
+  onAuthStateChanged(auth, user => {
+    window.currentUser = user;
+    document.dispatchEvent(new CustomEvent('authChange', { detail: user }));
+  });
 
-  function fmtDate(str) {
-    if (!str) return '—';
-    const [y,m,d] = str.split('-');
-    return `${d}.${m}.${y}`;
-  }
-
-  function fmtNow() {
-    return new Date().toLocaleString('az-AZ');
-  }
-
-  // ---- FIRESTORE CRUD ----
-  window.fbScan = async function(barcode) {
-    const ref = doc(db, 'products', barcode);
-    const snap = await getDoc(ref);
-    if (snap.exists()) {
-      return { exists: true, ...snap.data() };
-    }
-    return { exists: false, barcode };
+  window.fbScan = async (barcode) => {
+    const snap = await getDoc(doc(db, 'products', barcode));
+    return snap.exists() ? { exists: true, ...snap.data() } : { exists: false, barcode };
   };
 
-  window.fbSave = async function(product) {
-    const ref = doc(db, 'products', product.barcode);
-    product.updatedAt = fmtNow();
-    if (!product.createdAt) product.createdAt = fmtNow();
-    await setDoc(ref, product, { merge: true });
+  window.fbSave = async (product) => {
+    const now = new Date().toLocaleString('az-AZ');
+    product.updatedAt = now;
+    product.updatedBy = window.currentUser?.email || '?';
+    if (!product.createdAt) { product.createdAt = now; product.createdBy = window.currentUser?.email || '?'; }
+    await setDoc(doc(db, 'products', product.barcode), product, { merge: true });
     return product;
   };
 
-  window.fbDelete = async function(barcode) {
+  window.fbDelete = async (barcode, imageUrl) => {
     await deleteDoc(doc(db, 'products', barcode));
+    if (imageUrl) { try { await deleteObject(sRef(storage, `products/${barcode}.jpg`)); } catch(e) {} }
   };
 
-  window.fbGetAll = async function() {
+  window.fbGetAll = async () => {
     const snap = await getDocs(collection(db, 'products'));
     return snap.docs.map(d => d.data());
+  };
+
+  window.fbSaveSettings = async (settings) => {
+    if (!window.currentUser) return;
+    await setDoc(doc(db, 'settings', window.currentUser.uid), settings, { merge: true });
+  };
+
+  window.fbGetSettings = async () => {
+    if (!window.currentUser) return null;
+    const snap = await getDoc(doc(db, 'settings', window.currentUser.uid));
+    return snap.exists() ? snap.data() : null;
+  };
+
+  window.fbUploadImage = async (barcode, dataUrl) => {
+    const ref = sRef(storage, `products/${barcode}.jpg`);
+    await uploadString(ref, dataUrl.split(',')[1], 'base64', { contentType: 'image/jpeg' });
+    return await getDownloadURL(ref);
   };
 
   window.fbReady = true;
@@ -88,159 +86,123 @@
 
 <style>
 :root {
-  --bg: #080810;
-  --surface: #10101c;
-  --surface2: #18182a;
-  --border: #252538;
-  --accent: #6c5ce7;
-  --accent2: #a855f7;
-  --green: #00d68f;
-  --yellow: #fbbf24;
-  --red: #f43f5e;
-  --orange: #fb923c;
-  --text: #e2e2f0;
-  --text2: #7070a0;
-  --mono: 'Space Mono', monospace;
-  --sans: 'Syne', sans-serif;
+  --bg:#080810;--surface:#10101c;--surface2:#18182a;--border:#252538;
+  --accent:#6c5ce7;--accent2:#a855f7;--green:#00d68f;--yellow:#fbbf24;
+  --red:#f43f5e;--orange:#fb923c;--text:#e2e2f0;--text2:#7070a0;
+  --nav-bg:rgba(8,8,16,0.94);--shadow:0 4px 24px rgba(0,0,0,.4);
+  --mono:'Space Mono',monospace;--sans:'Syne',sans-serif;
 }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+body.light {
+  --bg:#f0f0f8;--surface:#ffffff;--surface2:#eaeaf6;--border:#d0d0e8;
+  --text:#1a1a2e;--text2:#5555a0;--nav-bg:rgba(240,240,248,0.96);--shadow:0 4px 24px rgba(108,92,231,.12);
+}
+body.light::before { background-image:linear-gradient(rgba(108,92,231,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(108,92,231,0.05) 1px,transparent 1px) !important; }
 
-body::before {
-  content: '';
-  position: fixed; inset: 0;
-  background-image:
-    linear-gradient(rgba(108,92,231,0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(108,92,231,0.04) 1px, transparent 1px);
-  background-size: 36px 36px;
-  pointer-events: none; z-index: 0;
-}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;transition:background .3s,color .3s;}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(108,92,231,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(108,92,231,0.04) 1px,transparent 1px);background-size:36px 36px;pointer-events:none;z-index:0;}
+
+/* LOGIN */
+#loginScreen{position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;align-items:center;justify-content:center;}
+.login-box{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:40px;text-align:center;max-width:360px;width:90%;box-shadow:var(--shadow);}
+.login-logo{font-family:var(--mono);font-size:30px;font-weight:700;margin-bottom:8px;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.login-sub{color:var(--text2);font-size:13px;margin-bottom:28px;line-height:1.6;}
+.google-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:13px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:var(--sans);font-size:15px;font-weight:700;cursor:pointer;transition:all .2s;}
+.google-btn:hover{border-color:var(--accent);background:rgba(108,92,231,.08);transform:translateY(-1px);}
 
 /* NAV */
-nav {
-  position: sticky; top: 0; z-index: 100;
-  background: rgba(8,8,16,0.92);
-  backdrop-filter: blur(16px);
-  border-bottom: 1px solid var(--border);
-  height: 60px;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 20px;
-}
-.logo {
-  font-family: var(--mono); font-size: 17px; font-weight: 700;
-  display: flex; align-items: center; gap: 8px;
-}
-.logo-pulse {
-  width: 9px; height: 9px; border-radius: 50%;
-  background: var(--accent); box-shadow: 0 0 10px var(--accent);
-  animation: pulse 2s infinite;
-}
-@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
-
-.nav-tabs { display: flex; gap: 2px; }
-.nav-tab {
-  padding: 7px 14px; border-radius: 8px; border: none;
-  background: transparent; color: var(--text2);
-  font-family: var(--sans); font-size: 13px; font-weight: 600;
-  cursor: pointer; transition: all .2s; white-space: nowrap;
-}
-.nav-tab:hover { color: var(--text); background: var(--surface2); }
-.nav-tab.active { color: var(--accent); background: rgba(108,92,231,.12); }
-.badge {
-  background: var(--red); color: #fff; border-radius: 99px;
-  padding: 1px 7px; font-size: 10px; font-family: var(--mono); font-weight: 700; margin-left: 5px;
-}
-
-/* FIREBASE CONFIG WARNING */
-.config-warn {
-  background: rgba(251,146,60,.12); border: 1px solid rgba(251,146,60,.3);
-  border-radius: 12px; padding: 16px 20px; margin-bottom: 20px;
-  font-size: 13px; line-height: 1.7;
-}
-.config-warn strong { color: var(--orange); }
-.config-warn code {
-  background: var(--surface2); padding: 1px 6px; border-radius: 4px;
-  font-family: var(--mono); font-size: 12px; color: var(--accent2);
-}
+nav{position:sticky;top:0;z-index:100;background:var(--nav-bg);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);height:60px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;gap:8px;}
+.logo{font-family:var(--mono);font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.logo-pulse{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+.nav-tabs{display:flex;gap:2px;}
+.nav-tab{padding:7px 12px;border-radius:8px;border:none;background:transparent;color:var(--text2);font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;white-space:nowrap;}
+.nav-tab:hover{color:var(--text);background:var(--surface2);}
+.nav-tab.active{color:var(--accent);background:rgba(108,92,231,.12);}
+.badge{background:var(--red);color:#fff;border-radius:99px;padding:1px 7px;font-size:10px;font-family:var(--mono);font-weight:700;margin-left:5px;}
+.nav-right{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+.icon-btn{width:34px;height:34px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s;}
+.icon-btn:hover{border-color:var(--accent);}
+.lang-btn{padding:5px 9px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);font-family:var(--mono);font-size:11px;font-weight:700;cursor:pointer;transition:all .2s;}
+.lang-btn:hover{border-color:var(--accent);color:var(--accent);}
+.user-chip{display:flex;align-items:center;gap:6px;padding:4px 10px 4px 4px;border-radius:20px;background:var(--surface2);border:1px solid var(--border);font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;max-width:140px;}
+.user-chip:hover{border-color:var(--red);color:var(--red);}
+.user-avatar{width:26px;height:26px;border-radius:50%;object-fit:cover;flex-shrink:0;}
+.user-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 /* MAIN */
-.main { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 20px 14px; }
+.main{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:20px 14px;}
 
 /* STATS */
-.stats-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 20px; }
-@media(max-width:700px){ .stats-row{grid-template-columns:repeat(2,1fr);} .nav-tabs{display:none;} }
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;}
+@media(max-width:700px){.stats-row{grid-template-columns:repeat(2,1fr);}.nav-tabs{display:none;}}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;overflow:hidden;position:relative;}
+.stat-card::after{content:'';position:absolute;bottom:0;left:0;right:0;height:3px;}
+.stat-card.s-total::after{background:linear-gradient(90deg,var(--accent),var(--accent2));}
+.stat-card.s-expired::after{background:var(--red);}
+.stat-card.s-critical::after{background:var(--orange);}
+.stat-card.s-warning::after{background:var(--yellow);}
+.stat-num{font-family:var(--mono);font-size:30px;font-weight:700;line-height:1;margin-bottom:5px;}
+.s-total .stat-num{color:var(--accent)}.s-expired .stat-num{color:var(--red)}
+.s-critical .stat-num{color:var(--orange)}.s-warning .stat-num{color:var(--yellow)}
+.stat-label{font-size:11px;color:var(--text2);font-weight:700;text-transform:uppercase;letter-spacing:.5px;}
 
-.stat-card {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 12px; padding: 16px; overflow: hidden; position: relative;
-}
-.stat-card::after { content:''; position:absolute; bottom:0;left:0;right:0;height:3px; }
-.stat-card.s-total::after { background: linear-gradient(90deg,var(--accent),var(--accent2)); }
-.stat-card.s-expired::after { background: var(--red); }
-.stat-card.s-critical::after { background: var(--orange); }
-.stat-card.s-warning::after { background: var(--yellow); }
-.stat-num { font-family:var(--mono); font-size:30px; font-weight:700; line-height:1; margin-bottom:5px; }
-.s-total .stat-num{color:var(--accent)} .s-expired .stat-num{color:var(--red)}
-.s-critical .stat-num{color:var(--orange)} .s-warning .stat-num{color:var(--yellow)}
-.stat-label { font-size:11px; color:var(--text2); font-weight:700; text-transform:uppercase; letter-spacing:.5px; }
-
-/* TAB CONTENT */
-.tab-content { display:none; }
-.tab-content.active { display:block; }
+/* TAB */
+.tab-content{display:none;}.tab-content.active{display:block;}
 
 /* SCAN GRID */
-.scan-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
-@media(max-width:800px){ .scan-grid{grid-template-columns:1fr;} }
+.scan-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+@media(max-width:800px){.scan-grid{grid-template-columns:1fr;}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;}
+.card-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text2);margin-bottom:14px;}
 
-.card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:22px; }
-.card-title { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--text2); margin-bottom:14px; }
+/* FULLSCREEN SCANNER */
+#scannerModal{display:none;position:fixed;inset:0;z-index:600;background:#000;flex-direction:column;}
+#scannerModal.open{display:flex;}
+#scanVideo{width:100%;height:100%;object-fit:cover;position:absolute;inset:0;}
+.scan-ui{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;}
+.scan-frame-box{width:72vw;max-width:320px;aspect-ratio:3/2;border:2px solid var(--accent);border-radius:12px;box-shadow:0 0 0 2000px rgba(0,0,0,.55);position:relative;}
+.scan-anim{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:scanln 2s ease-in-out infinite;box-shadow:0 0 8px var(--accent);}
+@keyframes scanln{0%,100%{top:4px;opacity:0}20%,80%{opacity:1}50%{top:calc(100% - 4px)}}
+.scan-hint{margin-top:20px;color:rgba(255,255,255,.75);font-size:14px;font-weight:600;font-family:var(--sans);text-shadow:0 1px 4px rgba(0,0,0,.5);}
+.scan-close-btn,.scan-torch-btn{position:absolute;top:max(env(safe-area-inset-top),16px);pointer-events:all;background:rgba(0,0,0,.65);border:none;color:#fff;font-size:20px;width:46px;height:46px;border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px);}
+.scan-close-btn{right:16px;}
+.scan-torch-btn{left:16px;}
+.scan-beep{position:absolute;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(108,92,231,.95);color:#fff;padding:10px 22px;border-radius:12px;font-family:var(--mono);font-size:14px;font-weight:700;display:none;animation:beep .4s ease;white-space:nowrap;max-width:80vw;overflow:hidden;text-overflow:ellipsis;}
+@keyframes beep{0%{transform:translateX(-50%) scale(.8);opacity:0}50%{transform:translateX(-50%) scale(1.05)}100%{transform:translateX(-50%) scale(1);opacity:1}}
 
-/* SCANNER */
-#scanner-container {
-  border-radius:12px; overflow:hidden; background:#000;
-  aspect-ratio:4/3; display:flex; align-items:center; justify-content:center; position:relative;
-}
-#video { width:100%; height:100%; object-fit:cover; }
-.scan-overlay { position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none; }
-.scan-frame { width:60%;aspect-ratio:3/2;border:2px solid var(--accent);border-radius:8px;box-shadow:0 0 0 1000px rgba(0,0,0,.5); }
-.scan-line { position:absolute;width:60%;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:scanline 2s ease-in-out infinite;box-shadow:0 0 8px var(--accent); }
-@keyframes scanline{0%,100%{transform:translateY(-28px);opacity:0}20%,80%{opacity:1}50%{transform:translateY(28px)}}
-.scan-placeholder { color:var(--text2);font-size:13px;text-align:center;padding:16px; }
+/* BIG SCAN BTN */
+.big-scan-btn{width:100%;padding:18px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-family:var(--sans);font-size:16px;font-weight:800;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:14px;box-shadow:0 4px 16px rgba(108,92,231,.3);}
+.big-scan-btn:hover{opacity:.9;transform:translateY(-1px);}
+.big-scan-btn:active{transform:scale(.97);}
 
-.scanner-btn {
-  margin-top:10px; width:100%; padding:11px;
-  border-radius:9px; border:1px solid var(--accent);
-  background:rgba(108,92,231,.1); color:var(--accent);
-  font-family:var(--sans); font-size:14px; font-weight:700; cursor:pointer; transition:all .2s;
-}
-.scanner-btn:hover{background:rgba(108,92,231,.2)}
-.scanner-btn.stop{border-color:var(--red);color:var(--red);background:rgba(244,63,94,.1)}
-
-/* FORM INPUTS */
-.ig { margin-bottom:12px; }
-.lbl { display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);margin-bottom:5px; }
-.inp {
-  width:100%;padding:9px 12px;border-radius:9px;border:1px solid var(--border);
-  background:var(--surface2);color:var(--text);font-family:var(--sans);font-size:14px;
-  transition:border-color .2s;outline:none;
-}
+/* FORM */
+.ig{margin-bottom:12px;}
+.lbl{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);margin-bottom:5px;}
+.inp{width:100%;padding:9px 12px;border-radius:9px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:var(--sans);font-size:14px;transition:border-color .2s;outline:none;}
 .inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(108,92,231,.12)}
 .inp.mono{font-family:var(--mono);letter-spacing:1px}
-
-.btn {
-  width:100%;padding:12px;border-radius:9px;border:none;
-  font-family:var(--sans);font-size:14px;font-weight:700;cursor:pointer;transition:all .2s;
-}
+.btn{width:100%;padding:12px;border-radius:9px;border:none;font-family:var(--sans);font-size:14px;font-weight:700;cursor:pointer;transition:all .2s;}
 .btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
 .btn-primary:hover{opacity:.9;transform:translateY(-1px);box-shadow:0 8px 20px rgba(108,92,231,.3)}
 .btn-secondary{background:var(--surface2);color:var(--text2);border:1px solid var(--border)}
 .btn-secondary:hover{color:var(--text)}
+.manual-row{display:flex;gap:8px;}
+.manual-row .inp{flex:1;}
+.manual-row .btn{width:auto;padding:9px 14px;}
+
+/* IMAGE PICKER */
+.img-picker{border:2px dashed var(--border);border-radius:10px;padding:14px;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:8px;position:relative;overflow:hidden;}
+.img-picker:hover{border-color:var(--accent);}
+.img-picker input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
+.img-preview{width:100%;max-height:130px;object-fit:contain;border-radius:8px;margin-top:8px;display:none;}
+.img-picker-lbl{font-size:12px;color:var(--text2);}
+.img-actions{display:flex;gap:8px;margin-bottom:12px;}
+.img-btn{flex:1;padding:7px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);font-size:11px;font-weight:700;cursor:pointer;transition:all .2s;font-family:var(--sans);}
+.img-btn:hover{border-color:var(--accent);color:var(--accent);}
 
 /* CONFIRM BOX */
-.confirm-box {
-  background:rgba(251,146,60,.08);border:1px solid rgba(251,146,60,.25);
-  border-radius:10px;padding:14px;margin-bottom:14px;
-}
+.confirm-box{background:rgba(251,146,60,.08);border:1px solid rgba(251,146,60,.25);border-radius:10px;padding:14px;margin-bottom:14px;}
 .confirm-box .ctitle{font-weight:700;color:var(--orange);margin-bottom:5px;font-size:14px;}
 .confirm-box .cdetail{font-size:12px;color:var(--text2);line-height:1.6;}
 .confirm-btns{display:flex;gap:8px;margin-top:10px;}
@@ -250,54 +212,37 @@ nav {
 .search-row{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
 .search-row .inp{flex:1;min-width:180px;}
 .filter-btns{display:flex;gap:6px;flex-wrap:wrap;}
-.fbtn{
-  padding:7px 12px;border-radius:7px;border:1px solid var(--border);
-  background:var(--surface);color:var(--text2);
-  font-family:var(--sans);font-size:11px;font-weight:700;cursor:pointer;transition:all .2s;
-}
+.fbtn{padding:7px 12px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text2);font-family:var(--sans);font-size:11px;font-weight:700;cursor:pointer;transition:all .2s;}
 .fbtn:hover,.fbtn.active{border-color:var(--accent);color:var(--accent);background:rgba(108,92,231,.08)}
 .fbtn.fe.active{border-color:var(--red);color:var(--red);background:rgba(244,63,94,.08)}
 .fbtn.fc.active{border-color:var(--orange);color:var(--orange);background:rgba(251,146,60,.08)}
 .fbtn.fw.active{border-color:var(--yellow);color:var(--yellow);background:rgba(251,191,36,.08)}
 
-/* EXCEL BTNS */
+/* EXCEL */
 .excel-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;}
-.xbtn{
-  display:flex;align-items:center;gap:7px;padding:9px 16px;
-  border-radius:9px;border:1px solid var(--border);background:var(--surface);
-  font-family:var(--sans);font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;
-  color:var(--text);
-}
+.xbtn{display:flex;align-items:center;gap:7px;padding:9px 16px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-family:var(--sans);font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;color:var(--text);}
 .xbtn.exp{border-color:rgba(0,214,143,.3);color:var(--green);background:rgba(0,214,143,.05)}
 .xbtn.exp:hover{background:rgba(0,214,143,.1)}
 .xbtn.imp{border-color:rgba(108,92,231,.3);color:var(--accent);background:rgba(108,92,231,.05)}
 .xbtn.imp:hover{background:rgba(108,92,231,.1)}
 .xbtn input{display:none}
 
-/* PRODUCTS GRID */
+/* PRODUCTS */
 .products-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;}
-.pcard{
-  background:var(--surface);border:1px solid var(--border);border-radius:12px;
-  overflow:hidden;transition:all .2s;
-}
-.pcard:hover{border-color:var(--accent);transform:translateY(-2px);}
-.pcard.expired{border-color:rgba(244,63,94,.35)}
-.pcard.critical{border-color:rgba(251,146,60,.35)}
-.pcard.warning{border-color:rgba(251,191,36,.25)}
-.pcard-img{
-  width:100%;height:150px;background:var(--surface2);
-  display:flex;align-items:center;justify-content:center;font-size:36px;
-}
+.pcard{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:all .2s;}
+.pcard:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--shadow);}
+.pcard.expired{border-color:rgba(244,63,94,.4)}
+.pcard.critical{border-color:rgba(251,146,60,.4)}
+.pcard.warning{border-color:rgba(251,191,36,.3)}
+.pcard-img{width:100%;height:150px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:36px;}
 .pcard-img img{width:100%;height:100%;object-fit:cover}
 .pcard-body{padding:14px}
 .pname{font-size:14px;font-weight:700;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pbarcode{font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:8px}
-.pexpiry{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.pbarcode{font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:6px}
+.pby{font-size:10px;color:var(--text2);margin-bottom:6px;}
+.pexpiry{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .exp-date{font-size:12px;color:var(--text2)}
-.sbadge{
-  padding:2px 9px;border-radius:99px;font-size:10px;font-weight:700;
-  font-family:var(--mono);text-transform:uppercase;
-}
+.sbadge{padding:2px 9px;border-radius:99px;font-size:10px;font-weight:700;font-family:var(--mono);text-transform:uppercase;}
 .sbadge.ok{background:rgba(0,214,143,.12);color:var(--green)}
 .sbadge.warning{background:rgba(251,191,36,.12);color:var(--yellow)}
 .sbadge.critical{background:rgba(251,146,60,.12);color:var(--orange)}
@@ -305,160 +250,177 @@ nav {
 .sbadge.none{background:var(--surface2);color:var(--text2)}
 .days-info{font-family:var(--mono);font-size:10px;margin-bottom:10px}
 .pactions{display:flex;gap:7px}
-.abtn{
-  flex:1;padding:7px;border-radius:7px;border:1px solid var(--border);
-  background:transparent;color:var(--text2);font-family:var(--sans);
-  font-size:11px;font-weight:600;cursor:pointer;transition:all .2s;
-}
+.abtn{flex:1;padding:7px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text2);font-family:var(--sans);font-size:11px;font-weight:600;cursor:pointer;transition:all .2s;}
 .abtn.edit:hover{color:var(--accent);border-color:var(--accent)}
 .abtn.del:hover{color:var(--red);border-color:var(--red)}
 
 /* ALERTS */
 .alerts-list{display:flex;flex-direction:column;gap:10px}
-.aitem{
-  background:var(--surface);border:1px solid var(--border);border-radius:10px;
-  padding:14px;display:flex;align-items:center;gap:14px;
-}
-.aitem.critical{border-color:rgba(251,146,60,.35)}
-.aitem.expired{border-color:rgba(244,63,94,.35)}
+.aitem{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;align-items:center;gap:14px;}
+.aitem.critical{border-color:rgba(251,146,60,.4)}
+.aitem.expired{border-color:rgba(244,63,94,.4)}
 .aicon{font-size:26px;flex-shrink:0}
 .ainfo{flex:1}
 .aname{font-weight:700;font-size:14px}
 .adate{font-size:12px;color:var(--text2);margin-top:2px}
 .abc{font-family:var(--mono);font-size:10px;color:var(--text2);margin-top:3px}
 
+/* SETTINGS */
+.settings-section{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;margin-bottom:18px;}
+.settings-title{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:var(--text2);margin-bottom:16px;}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border);}
+.toggle-row:last-child{border-bottom:none;padding-bottom:0;}
+.toggle-row:first-of-type{padding-top:0;}
+.toggle-info{flex:1;padding-right:14px;}
+.toggle-label{font-size:14px;font-weight:600;}
+.toggle-sub{font-size:12px;color:var(--text2);margin-top:3px;}
+.toggle{position:relative;width:44px;height:24px;flex-shrink:0;}
+.toggle input{opacity:0;width:0;height:0;}
+.toggle-slider{position:absolute;inset:0;background:var(--border);border-radius:24px;cursor:pointer;transition:.3s;}
+.toggle input:checked+.toggle-slider{background:var(--accent);}
+.toggle-slider::before{content:'';position:absolute;width:18px;height:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s;}
+.toggle input:checked+.toggle-slider::before{transform:translateX(20px);}
+.members-list{margin-top:8px;}
+.member-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.member-item:last-child{border-bottom:none;}
+.member-av{width:28px;height:28px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0;}
+.lang-row{display:flex;gap:6px;}
+
 /* MODAL */
-.modal-overlay{
-  display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);
-  backdrop-filter:blur(6px);z-index:500;align-items:center;justify-content:center;padding:14px;
-}
-.modal-overlay.open{display:flex}
-.modal{
-  background:var(--surface);border:1px solid var(--border);border-radius:18px;
-  padding:24px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;
-  animation:mIn .25s ease;
-}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);z-index:400;align-items:center;justify-content:center;padding:14px;}
+.modal-overlay.open{display:flex;}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:24px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;animation:mIn .25s ease;}
 @keyframes mIn{from{transform:scale(.96) translateY(16px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}
 .modal-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
 .modal-title{font-size:17px;font-weight:800}
-.modal-close{
-  width:30px;height:30px;border-radius:7px;border:1px solid var(--border);
-  background:transparent;color:var(--text2);cursor:pointer;font-size:16px;
-  display:flex;align-items:center;justify-content:center;
-}
+.modal-close{width:30px;height:30px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;}
 .modal-close:hover{color:var(--text)}
 
 /* TOAST */
 .toast-wrap{position:fixed;bottom:22px;right:22px;z-index:999;display:flex;flex-direction:column;gap:8px}
-.toast{
-  padding:12px 18px;border-radius:10px;font-size:13px;font-weight:600;
-  max-width:340px;animation:tIn .25s ease;border-left:4px solid;backdrop-filter:blur(10px);
-}
-.toast.success{background:rgba(0,214,143,.12);border-color:var(--green);color:var(--green)}
-.toast.error{background:rgba(244,63,94,.12);border-color:var(--red);color:var(--red)}
-.toast.warning{background:rgba(251,191,36,.12);border-color:var(--yellow);color:var(--yellow)}
-.toast.info{background:rgba(108,92,231,.12);border-color:var(--accent);color:var(--accent)}
+.toast{padding:12px 18px;border-radius:10px;font-size:13px;font-weight:600;max-width:340px;animation:tIn .25s ease;border-left:4px solid;backdrop-filter:blur(10px);}
+.toast.success{background:rgba(0,214,143,.15);border-color:var(--green);color:var(--green)}
+.toast.error{background:rgba(244,63,94,.15);border-color:var(--red);color:var(--red)}
+.toast.warning{background:rgba(251,191,36,.15);border-color:var(--yellow);color:var(--yellow)}
+.toast.info{background:rgba(108,92,231,.15);border-color:var(--accent);color:var(--accent)}
 @keyframes tIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
 
-/* LOADING */
+/* MISC */
 .loading{display:flex;align-items:center;justify-content:center;padding:40px;color:var(--text2);gap:10px}
 .spin{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-
-/* EMPTY */
 .empty{text-align:center;padding:50px 20px;color:var(--text2)}
 .empty .eicon{font-size:44px;margin-bottom:10px}
 .empty h3{font-size:17px;color:var(--text);margin-bottom:6px}
 .empty p{font-size:13px}
+.note-box{background:rgba(108,92,231,.08);border:1px solid rgba(108,92,231,.2);border-radius:10px;padding:14px;font-size:12px;color:var(--text2);line-height:1.7;margin-top:14px;}
 
-/* MOBILE NAV */
-.mob-nav{
-  display:none;position:fixed;bottom:0;left:0;right:0;
-  background:rgba(8,8,16,.95);border-top:1px solid var(--border);
-  padding:6px 0 calc(6px + env(safe-area-inset-bottom));
-  z-index:100;justify-content:space-around;
-}
-@media(max-width:700px){.mob-nav{display:flex}.main{padding-bottom:75px}}
-.mtab{
-  display:flex;flex-direction:column;align-items:center;gap:2px;
-  padding:5px 10px;border:none;background:transparent;
-  color:var(--text2);font-family:var(--sans);font-size:9px;font-weight:700;cursor:pointer;transition:all .2s;
-}
+/* MOB NAV */
+.mob-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--nav-bg);border-top:1px solid var(--border);padding:6px 0 calc(6px + env(safe-area-inset-bottom));z-index:100;justify-content:space-around;}
+@media(max-width:700px){.mob-nav{display:flex}.main{padding-bottom:80px}}
+.mtab{display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 10px;border:none;background:transparent;color:var(--text2);font-family:var(--sans);font-size:9px;font-weight:700;cursor:pointer;transition:all .2s;}
 .mtab.active{color:var(--accent)}
-.mtab .mi{font-size:19px}
+.mtab .mi{font-size:20px}
 </style>
 </head>
 <body>
 
+<!-- LOGIN -->
+<div id="loginScreen">
+  <div class="login-box">
+    <div class="login-logo">📦 StokSkan</div>
+    <div class="login-sub">Gmail ilə daxil olun<br>Sign in with Gmail<br>Mit Gmail anmelden</div>
+    <button class="google-btn" onclick="window.fbSignIn()">
+      <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.1 29.3 35 24 35c-6.1 0-11-4.9-11-11s4.9-11 11-11c2.8 0 5.3 1 7.2 2.7l5.7-5.7C33.5 7.1 29 5 24 5 13 5 4 14 4 25s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c2.8 0 5.3 1 7.2 2.7l5.7-5.7C33.5 7.1 29 5 24 5 16.3 5 9.7 9.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 45c5 0 9.4-1.9 12.8-4.9l-5.9-5c-1.8 1.3-4.2 2-6.9 2-5.2 0-9.6-3.5-11.2-8.3l-6.6 5.1C9.6 40.8 16.3 45 24 45z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.5l5.9 5C41.2 35.5 44 31 44 25c0-1.3-.1-2.6-.4-3.9z"/></svg>
+      Google ile Giriş / Sign in / Anmelden
+    </button>
+  </div>
+</div>
+
+<!-- FULLSCREEN SCANNER -->
+<div id="scannerModal">
+  <video id="scanVideo" autoplay playsinline muted></video>
+  <div class="scan-ui">
+    <div class="scan-frame-box"><div class="scan-anim"></div></div>
+    <div class="scan-hint" id="scanHint">Barkodu çərçivəyə tutun</div>
+  </div>
+  <div class="scan-beep" id="scanBeep"></div>
+  <button class="scan-torch-btn" onclick="toggleTorch()">💡</button>
+  <button class="scan-close-btn" onclick="closeScanner()">✕</button>
+</div>
+
 <nav>
   <div class="logo"><div class="logo-pulse"></div>StokSkan</div>
   <div class="nav-tabs">
-    <button class="nav-tab active" onclick="switchTab('scan')">📷 Skan</button>
-    <button class="nav-tab" onclick="switchTab('products')">📦 Məhsullar</button>
-    <button class="nav-tab" onclick="switchTab('alerts')">⚠️ Xəbərdarlıq <span class="badge" id="alertBadge" style="display:none">0</span></button>
+    <button class="nav-tab active" onclick="switchTab('scan')" id="nt-scan">📷 <span data-k="tab_scan">Skan</span></button>
+    <button class="nav-tab" onclick="switchTab('products')" id="nt-products">📦 <span data-k="tab_products">Məhsullar</span></button>
+    <button class="nav-tab" onclick="switchTab('alerts')" id="nt-alerts">⚠️ <span data-k="tab_alerts">Xəbərdarlıq</span><span class="badge" id="alertBadge" style="display:none">0</span></button>
+    <button class="nav-tab" onclick="switchTab('settings')" id="nt-settings">⚙️ <span data-k="tab_settings">Ayarlar</span></button>
+  </div>
+  <div class="nav-right">
+    <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">🌙</button>
+    <button class="lang-btn" id="langBtn" onclick="cycleLang()">AZ</button>
+    <div class="user-chip" onclick="window.fbSignOut()" id="userChip" style="display:none">
+      <img class="user-avatar" id="userAvatar" src="" alt="">
+      <span class="user-name" id="userName"></span>
+    </div>
   </div>
 </nav>
 
 <div class="main">
-
-  <!-- FIREBASE CONFIG WARNING -->
-  <div class="config-warn" id="configWarn">
-    ⚙️ <strong>Firebase konfiqurasiyası tələb olunur!</strong><br>
-    <code>index.html</code> faylında <code>firebaseConfig</code> hissəsini öz Firebase layihənizin məlumatları ilə doldurun.<br>
-    <a href="https://console.firebase.google.com" target="_blank" style="color:var(--accent)">console.firebase.google.com</a> → Layihə → Project Settings → Your apps → Config
-  </div>
-
-  <!-- STATS -->
   <div class="stats-row">
-    <div class="stat-card s-total"><div class="stat-num" id="sTotal">—</div><div class="stat-label">Cəmi</div></div>
-    <div class="stat-card s-expired"><div class="stat-num" id="sExpired">—</div><div class="stat-label">Müddəti Bitib</div></div>
-    <div class="stat-card s-critical"><div class="stat-num" id="sCritical">—</div><div class="stat-label">Kritik 7 gün</div></div>
-    <div class="stat-card s-warning"><div class="stat-num" id="sWarning">—</div><div class="stat-label">Diqqət 30 gün</div></div>
+    <div class="stat-card s-total"><div class="stat-num" id="sTotal">—</div><div class="stat-label" data-k="stat_total">Cəmi</div></div>
+    <div class="stat-card s-expired"><div class="stat-num" id="sExpired">—</div><div class="stat-label" data-k="stat_expired">Bitib</div></div>
+    <div class="stat-card s-critical"><div class="stat-num" id="sCritical">—</div><div class="stat-label" data-k="stat_critical">Kritik 7g</div></div>
+    <div class="stat-card s-warning"><div class="stat-num" id="sWarning">—</div><div class="stat-label" data-k="stat_warning">Diqqət 30g</div></div>
   </div>
 
   <!-- SCAN TAB -->
   <div id="tab-scan" class="tab-content active">
     <div class="scan-grid">
-
       <div class="card">
-        <div class="card-title">📷 Barkod Skan</div>
-        <div id="scanner-container">
-          <video id="video" autoplay playsinline muted></video>
-          <div class="scan-overlay" id="scanOverlay" style="display:none">
-            <div class="scan-frame"></div>
-            <div class="scan-line"></div>
-          </div>
-          <div class="scan-placeholder" id="scanPh">Kameranı başlatmaq üçün aşağıdakı düyməyə basın</div>
-        </div>
-        <button class="scanner-btn" id="startBtn" onclick="startScanner()">▶ Kameranı Başlat</button>
-        <div style="margin-top:14px">
-          <div class="lbl">Əl ilə daxil et</div>
-          <div style="display:flex;gap:8px">
+        <div class="card-title" data-k="scan_title">📷 Barkod Skan</div>
+        <button class="big-scan-btn" onclick="openScanner()">
+          <span style="font-size:26px">📷</span>
+          <span data-k="open_camera">Kameranı Aç — Tam Ekran</span>
+        </button>
+        <div class="ig">
+          <label class="lbl" data-k="manual_entry">Əl ilə daxil et</label>
+          <div class="manual-row">
             <input type="text" class="inp mono" id="manualInput" placeholder="Barkod..." onkeydown="if(event.key==='Enter')checkManual()">
-            <button class="btn btn-primary" style="width:auto;padding:9px 14px" onclick="checkManual()">Yoxla</button>
+            <button class="btn btn-primary" onclick="checkManual()" data-k="check">Yoxla</button>
           </div>
         </div>
       </div>
 
       <div class="card">
-        <div class="card-title">➕ Məhsul Əlavə Et</div>
-
+        <div class="card-title" data-k="add_product">➕ Məhsul Əlavə Et</div>
         <div class="confirm-box" id="existWarn" style="display:none">
-          <div class="ctitle">⚠️ Məhsul Mövcuddur</div>
+          <div class="ctitle">⚠️ <span data-k="exists_title">Mövcuddur</span></div>
           <div class="cdetail" id="existDetail"></div>
           <div class="confirm-btns">
-            <button class="btn btn-primary" onclick="doUpdate()">✏️ Yenilə</button>
-            <button class="btn btn-secondary" onclick="cancelExist()">Ləğv Et</button>
+            <button class="btn btn-primary" onclick="doUpdate()" data-k="btn_update">✏️ Yenilə</button>
+            <button class="btn btn-secondary" onclick="cancelExist()" data-k="btn_cancel">Ləğv</button>
           </div>
         </div>
-
-        <div class="ig"><label class="lbl">Barkod *</label><input type="text" class="inp mono" id="fBarcode" placeholder="EAN, QR, UPC..."></div>
-        <div class="ig"><label class="lbl">Məhsulun Adı *</label><input type="text" class="inp" id="fName" placeholder="Ad..."></div>
-        <div class="ig"><label class="lbl">MHT (Son İstifadə Tarixi)</label><input type="date" class="inp" id="fExpiry"></div>
-        <div class="ig"><label class="lbl">Qeydlər</label><input type="text" class="inp" id="fNotes" placeholder="İstəyə bağlı..."></div>
-        <button class="btn btn-primary" onclick="saveProduct()">💾 Yadda Saxla</button>
+        <div class="ig"><label class="lbl" data-k="lbl_barcode">Barkod *</label><input type="text" class="inp mono" id="fBarcode"></div>
+        <div class="ig"><label class="lbl" data-k="lbl_name">Məhsulun Adı *</label><input type="text" class="inp" id="fName"></div>
+        <div class="ig"><label class="lbl" data-k="lbl_expiry">MHT / MHD / Expiry</label><input type="date" class="inp" id="fExpiry"></div>
+        <div class="ig"><label class="lbl" data-k="lbl_notes">Qeydlər</label><input type="text" class="inp" id="fNotes"></div>
+        <div class="ig">
+          <label class="lbl" data-k="lbl_photo">Şəkil / Foto / Bild</label>
+          <div class="img-picker">
+            <input type="file" accept="image/*" capture="environment" id="imgFile" onchange="onImgFile(this,'imgPreview','imgActions')">
+            <div class="img-picker-lbl" data-k="photo_hint">📷 Şəkil çək və ya seç (max 250KB)</div>
+            <img class="img-preview" id="imgPreview" alt="">
+          </div>
+          <div class="img-actions" id="imgActions" style="display:none">
+            <button class="img-btn" onclick="document.getElementById('imgFile').click()" data-k="btn_change">🔄 Dəyiş</button>
+            <button class="img-btn" style="color:var(--red)" onclick="clearImg('imgFile','imgPreview','imgActions',false)" data-k="btn_remove">🗑 Sil</button>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="saveProduct()" data-k="btn_save">💾 Yadda Saxla</button>
       </div>
-
     </div>
   </div>
 
@@ -466,506 +428,755 @@ nav {
   <div id="tab-products" class="tab-content">
     <div class="excel-row">
       <button class="xbtn exp" onclick="exportExcel()">📊 Excel Export</button>
-      <label class="xbtn imp">📥 Excel Import<input type="file" accept=".xlsx,.xls" onchange="importExcel(this)"></label>
+      <label class="xbtn imp">📥 Import<input type="file" accept=".xlsx,.xls" onchange="importExcel(this)"></label>
     </div>
     <div class="search-row">
-      <input type="text" class="inp" id="searchInp" placeholder="Ad və ya barkod axtar..." oninput="renderProducts()">
+      <input type="text" class="inp" id="searchInp" oninput="renderProducts()">
       <div class="filter-btns">
-        <button class="fbtn active" id="fa" onclick="setFilter('')">Hamısı</button>
-        <button class="fbtn fe" id="fe" onclick="setFilter('expired')">Bitib</button>
-        <button class="fbtn fc" id="fc" onclick="setFilter('critical')">Kritik</button>
-        <button class="fbtn fw" id="fw" onclick="setFilter('warning')">Diqqət</button>
+        <button class="fbtn active" id="fa" onclick="setFilter('')" data-k="filter_all">Hamısı</button>
+        <button class="fbtn fe" id="fe" onclick="setFilter('expired')" data-k="filter_expired">Bitib</button>
+        <button class="fbtn fc" id="fc" onclick="setFilter('critical')" data-k="filter_critical">Kritik</button>
+        <button class="fbtn fw" id="fw" onclick="setFilter('warning')" data-k="filter_warning">Diqqət</button>
       </div>
     </div>
-    <div class="products-grid" id="productsGrid">
-      <div class="loading"><div class="spin"></div> Yüklənir...</div>
-    </div>
+    <div class="products-grid" id="productsGrid"><div class="loading"><div class="spin"></div></div></div>
   </div>
 
   <!-- ALERTS TAB -->
   <div id="tab-alerts" class="tab-content">
-    <div class="alerts-list" id="alertsList">
-      <div class="loading"><div class="spin"></div> Yüklənir...</div>
-    </div>
+    <div class="alerts-list" id="alertsList"><div class="loading"><div class="spin"></div></div></div>
   </div>
 
+  <!-- SETTINGS TAB -->
+  <div id="tab-settings" class="tab-content">
+
+    <div class="settings-section">
+      <div class="settings-title" data-k="set_notif">📧 Email Bildirişləri</div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label" data-k="notif_daily">Günlük MHT Siyahısı</div>
+          <div class="toggle-sub" data-k="notif_daily_sub">Hər gün Gmail-ə göndərilsin</div>
+        </div>
+        <label class="toggle"><input type="checkbox" id="notifEnabled" onchange="saveSettings()"><span class="toggle-slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label" data-k="notif_time">Göndərilmə Vaxtı</div>
+          <div class="toggle-sub" data-k="notif_time_sub">Hər gün bu saatda göndərilir</div>
+        </div>
+        <input type="time" class="inp" id="notifTime" value="08:00" style="width:110px" onchange="saveSettings()">
+      </div>
+      <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px;">
+        <button class="btn btn-secondary" onclick="sendTestEmail()" data-k="btn_test_email">📨 Test Email Göndər</button>
+      </div>
+      <div class="note-box" id="emailjsNote" data-k="notif_note">
+        Bildirişlər EmailJS vasitəsilə göndərilir (pulsuz plan: ayda 200 email).<br>
+        <strong>emailjs.com</strong> → hesab aç → Service + Template yarat → Public Key al.<br>
+        Template dəyişənləri: <code style="font-family:var(--mono);font-size:11px">{{to_email}}</code>, <code style="font-family:var(--mono);font-size:11px">{{message}}</code>
+        <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">
+          <input class="inp" placeholder="EmailJS Public Key" id="ejsKey" style="font-size:12px">
+          <input class="inp" placeholder="Service ID (e.g. service_xxx)" id="ejsService" style="font-size:12px">
+          <input class="inp" placeholder="Template ID (e.g. template_xxx)" id="ejsTemplate" style="font-size:12px">
+          <button class="btn btn-primary" style="padding:9px" onclick="saveEjsConfig()" data-k="btn_save">💾 Yadda Saxla</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-title" data-k="set_team">👥 Qrup İşi</div>
+      <div class="toggle-sub" style="margin-bottom:14px" data-k="team_note">Eyni Firebase layihəsinə Gmail ilə daxil olan hər kəs (5+ nəfər) məlumatları görə, əlavə edə və redaktə edə bilər. Xüsusi dəvət lazım deyil.</div>
+      <div class="members-list" id="membersList"><div class="loading"><div class="spin"></div></div></div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-title" data-k="set_appearance">🎨 Görünüş</div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label" data-k="dark_mode">Qaranlıq / Dark / Dunkel Mod</div>
+        </div>
+        <label class="toggle"><input type="checkbox" id="darkToggle" onchange="onDarkToggle()"><span class="toggle-slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Dil / Language / Sprache</div>
+        </div>
+        <div class="lang-row">
+          <button class="lang-btn" onclick="setLang('az')">AZ</button>
+          <button class="lang-btn" onclick="setLang('en')">EN</button>
+          <button class="lang-btn" onclick="setLang('de')">DE</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align:center;padding:10px;font-size:11px;color:var(--text2);">
+      StokSkan v2.0 | Firebase + EmailJS
+    </div>
+  </div>
 </div>
 
-<!-- MOBILE NAV -->
+<!-- MOB NAV -->
 <div class="mob-nav">
-  <button class="mtab active" id="mt-scan" onclick="switchTab('scan')"><span class="mi">📷</span>Skan</button>
-  <button class="mtab" id="mt-products" onclick="switchTab('products')"><span class="mi">📦</span>Məhsullar</button>
-  <button class="mtab" id="mt-alerts" onclick="switchTab('alerts')"><span class="mi">⚠️</span>Xəbərdarlıq</button>
+  <button class="mtab active" id="mt-scan" onclick="switchTab('scan')"><span class="mi">📷</span><span data-k="tab_scan">Skan</span></button>
+  <button class="mtab" id="mt-products" onclick="switchTab('products')"><span class="mi">📦</span><span data-k="tab_products">Məhsullar</span></button>
+  <button class="mtab" id="mt-alerts" onclick="switchTab('alerts')"><span class="mi">⚠️</span><span data-k="tab_alerts">Xəbərdarlıq</span></button>
+  <button class="mtab" id="mt-settings" onclick="switchTab('settings')"><span class="mi">⚙️</span><span data-k="tab_settings">Ayarlar</span></button>
 </div>
 
 <!-- EDIT MODAL -->
 <div class="modal-overlay" id="editModal">
   <div class="modal">
     <div class="modal-hdr">
-      <div class="modal-title">✏️ Redaktə Et</div>
+      <div class="modal-title" data-k="edit_title">✏️ Redaktə Et</div>
       <button class="modal-close" onclick="closeModal()">×</button>
     </div>
-    <div class="ig"><label class="lbl">Məhsulun Adı *</label><input type="text" class="inp" id="eName"></div>
-    <div class="ig"><label class="lbl">MHT Tarixi</label><input type="date" class="inp" id="eExpiry"></div>
-    <div class="ig"><label class="lbl">Qeydlər</label><input type="text" class="inp" id="eNotes"></div>
+    <div class="ig"><label class="lbl" data-k="lbl_name">Məhsulun Adı *</label><input type="text" class="inp" id="eName"></div>
+    <div class="ig"><label class="lbl" data-k="lbl_expiry">MHT / MHD / Expiry</label><input type="date" class="inp" id="eExpiry"></div>
+    <div class="ig"><label class="lbl" data-k="lbl_notes">Qeydlər</label><input type="text" class="inp" id="eNotes"></div>
+    <div class="ig">
+      <label class="lbl" data-k="lbl_photo">Şəkil</label>
+      <div class="img-picker">
+        <input type="file" accept="image/*" capture="environment" id="eImgFile" onchange="onImgFile(this,'eImgPreview','eImgActions')">
+        <div class="img-picker-lbl" data-k="photo_hint">📷 Şəkil çək / seç</div>
+        <img class="img-preview" id="eImgPreview" alt="">
+      </div>
+      <div class="img-actions" id="eImgActions" style="display:none">
+        <button class="img-btn" onclick="document.getElementById('eImgFile').click()" data-k="btn_change">🔄 Dəyiş</button>
+        <button class="img-btn" style="color:var(--red)" onclick="clearImg('eImgFile','eImgPreview','eImgActions',true)" data-k="btn_remove">🗑 Sil</button>
+      </div>
+    </div>
     <input type="hidden" id="eBarcode">
-    <button class="btn btn-primary" onclick="updateProduct()">💾 Yadda Saxla</button>
+    <input type="hidden" id="eOldImg">
+    <button class="btn btn-primary" onclick="updateProduct()" data-k="btn_save">💾 Yadda Saxla</button>
   </div>
 </div>
 
 <div class="toast-wrap" id="toastWrap"></div>
 
-<script type="module">
-// Wait for SheetJS
-</script>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
-
 <script>
-let allProducts = [];
-let currentFilter = '';
-let existingProduct = null;
-let codeReader = null;
-let scanActive = false;
-let lastScanned = '';
+// ==================== I18N ====================
+const TR = {
+  az:{
+    tab_scan:'Skan',tab_products:'Məhsullar',tab_alerts:'Xəbərdarlıq',tab_settings:'Ayarlar',
+    stat_total:'Cəmi',stat_expired:'Müddəti Bitib',stat_critical:'Kritik 7 gün',stat_warning:'Diqqət 30 gün',
+    scan_title:'📷 Barkod Skan',open_camera:'Kameranı Aç — Tam Ekran',manual_entry:'Əl ilə daxil et',check:'Yoxla',
+    add_product:'➕ Məhsul Əlavə Et',lbl_barcode:'Barkod *',lbl_name:'Məhsulun Adı *',
+    lbl_expiry:'MHT (Son İstifadə Tarixi)',lbl_notes:'Qeydlər',lbl_photo:'Şəkil',
+    photo_hint:'📷 Şəkil çək və ya seç (max 250KB)',btn_change:'🔄 Dəyiş',btn_remove:'🗑 Sil',
+    btn_save:'💾 Yadda Saxla',exists_title:'Məhsul Mövcuddur',btn_update:'✏️ Yenilə',btn_cancel:'Ləğv Et',
+    filter_all:'Hamısı',filter_expired:'Bitib',filter_critical:'Kritik',filter_warning:'Diqqət',
+    edit_title:'✏️ Redaktə Et',
+    set_notif:'📧 Email Bildirişləri',notif_daily:'Günlük MHT Siyahısı',notif_daily_sub:'Hər gün Gmail-ə göndərilsin',
+    notif_time:'Göndərilmə Vaxtı',notif_time_sub:'Hər gün bu saatda göndərilir',btn_test_email:'📨 Test Email Göndər',
+    notif_note:'Bildirişlər EmailJS vasitəsilə göndərilir (pulsuz: ayda 200 email).',
+    set_team:'👥 Qrup İşi',team_note:'Eyni Firebase layihəsinə daxil olan hər kəs məlumatları görə, əlavə edə və redaktə edə bilər.',
+    set_appearance:'🎨 Görünüş',dark_mode:'Qaranlıq Mod',
+    s_ok:'Normal',s_warning:'Diqqət',s_critical:'Kritik',s_expired:'Bitib',
+    days_left:'gün qalıb',days_ago:'gün əvvəl bitib',
+    expiry_lbl:'MHT:',by:'Əlavə edən:',no_results:'Nəticə tapılmadı',no_alerts:'Xəbərdarlıq yoxdur',all_ok:'Bütün məhsullar normaldır',
+    scan_hint:'Barkodu çərçivəyə tutun',err_required:'Barkod və ad mütləqdir!',err_name:'Ad boş ola bilməz',
+    uploading:'Şəkil yüklənir...',saved:'Yadda saxlandı',updated:'Yeniləndi',deleted:'Silindi',confirm_del:'silinsin?',
+  },
+  en:{
+    tab_scan:'Scan',tab_products:'Products',tab_alerts:'Alerts',tab_settings:'Settings',
+    stat_total:'Total',stat_expired:'Expired',stat_critical:'Critical 7d',stat_warning:'Warning 30d',
+    scan_title:'📷 Barcode Scan',open_camera:'Open Camera — Fullscreen',manual_entry:'Enter manually',check:'Check',
+    add_product:'➕ Add Product',lbl_barcode:'Barcode *',lbl_name:'Product Name *',
+    lbl_expiry:'Expiry Date',lbl_notes:'Notes',lbl_photo:'Photo',
+    photo_hint:'📷 Take or select photo (max 250KB)',btn_change:'🔄 Change',btn_remove:'🗑 Remove',
+    btn_save:'💾 Save',exists_title:'Product Exists',btn_update:'✏️ Update',btn_cancel:'Cancel',
+    filter_all:'All',filter_expired:'Expired',filter_critical:'Critical',filter_warning:'Warning',
+    edit_title:'✏️ Edit Product',
+    set_notif:'📧 Email Notifications',notif_daily:'Daily Expiry List',notif_daily_sub:'Send to your Gmail every day',
+    notif_time:'Send Time',notif_time_sub:'Send at this time daily',btn_test_email:'📨 Send Test Email',
+    notif_note:'Notifications are sent via EmailJS (free plan: 200 emails/month).',
+    set_team:'👥 Team Collaboration',team_note:'Anyone who signs in with Gmail to the same Firebase project can view and edit products.',
+    set_appearance:'🎨 Appearance',dark_mode:'Dark Mode',
+    s_ok:'OK',s_warning:'Warning',s_critical:'Critical',s_expired:'Expired',
+    days_left:'days left',days_ago:'days expired',
+    expiry_lbl:'Expiry:',by:'Added by:',no_results:'No results found',no_alerts:'No alerts',all_ok:'All products are fine',
+    scan_hint:'Hold barcode in frame',err_required:'Barcode and name are required!',err_name:'Name cannot be empty',
+    uploading:'Uploading photo...',saved:'Saved',updated:'Updated',deleted:'Deleted',confirm_del:'delete?',
+  },
+  de:{
+    tab_scan:'Scannen',tab_products:'Produkte',tab_alerts:'Warnungen',tab_settings:'Einstellungen',
+    stat_total:'Gesamt',stat_expired:'Abgelaufen',stat_critical:'Kritisch 7T',stat_warning:'Warnung 30T',
+    scan_title:'📷 Barcode scannen',open_camera:'Kamera öffnen — Vollbild',manual_entry:'Manuell eingeben',check:'Prüfen',
+    add_product:'➕ Produkt hinzufügen',lbl_barcode:'Barcode *',lbl_name:'Produktname *',
+    lbl_expiry:'Ablaufdatum (MHD)',lbl_notes:'Notizen',lbl_photo:'Foto',
+    photo_hint:'📷 Foto aufnehmen oder auswählen (max 250KB)',btn_change:'🔄 Ändern',btn_remove:'🗑 Entfernen',
+    btn_save:'💾 Speichern',exists_title:'Produkt vorhanden',btn_update:'✏️ Aktualisieren',btn_cancel:'Abbrechen',
+    filter_all:'Alle',filter_expired:'Abgelaufen',filter_critical:'Kritisch',filter_warning:'Warnung',
+    edit_title:'✏️ Produkt bearbeiten',
+    set_notif:'📧 E-Mail-Benachrichtigungen',notif_daily:'Tägliche MHD-Liste',notif_daily_sub:'Täglich an Ihre Gmail senden',
+    notif_time:'Sendezeit',notif_time_sub:'Täglich zu dieser Zeit senden',btn_test_email:'📨 Test-E-Mail senden',
+    notif_note:'Benachrichtigungen werden über EmailJS gesendet (kostenloser Plan: 200 E-Mails/Monat).',
+    set_team:'👥 Teamarbeit',team_note:'Jeder, der sich mit Gmail beim selben Firebase-Projekt anmeldet, kann Produkte anzeigen und bearbeiten.',
+    set_appearance:'🎨 Erscheinungsbild',dark_mode:'Dunkelmodus',
+    s_ok:'OK',s_warning:'Warnung',s_critical:'Kritisch',s_expired:'Abgelaufen',
+    days_left:'Tage übrig',days_ago:'Tage abgelaufen',
+    expiry_lbl:'MHD:',by:'Hinzugefügt von:',no_results:'Keine Ergebnisse',no_alerts:'Keine Warnungen',all_ok:'Alle Produkte sind in Ordnung',
+    scan_hint:'Barcode in den Rahmen halten',err_required:'Barcode und Name sind erforderlich!',err_name:'Name darf nicht leer sein',
+    uploading:'Foto wird hochgeladen...',saved:'Gespeichert',updated:'Aktualisiert',deleted:'Gelöscht',confirm_del:'löschen?',
+  }
+};
 
-// ---- UTILS ----
+let lang = localStorage.getItem('lang') || 'de';
+function _(k) { return (TR[lang]||TR.de)[k] || k; }
+function applyLang() {
+  document.querySelectorAll('[data-k]').forEach(el => { el.textContent = _(el.dataset.k); });
+  document.getElementById('langBtn').textContent = lang.toUpperCase();
+  document.getElementById('scanHint').textContent = _('scan_hint');
+  document.getElementById('searchInp').placeholder = _('filter_all') + '...';
+}
+function cycleLang() { lang = {az:'en',en:'de',de:'az'}[lang]; localStorage.setItem('lang',lang); applyLang(); renderProducts(); renderAlerts(); }
+function setLang(l) { lang = l; localStorage.setItem('lang',l); applyLang(); renderProducts(); renderAlerts(); }
+
+// ==================== THEME ====================
+let dark = localStorage.getItem('theme') !== 'light';
+function applyTheme() {
+  document.body.classList.toggle('light', !dark);
+  document.getElementById('themeBtn').textContent = dark ? '🌙' : '☀️';
+  const dt = document.getElementById('darkToggle');
+  if (dt) dt.checked = dark;
+  localStorage.setItem('theme', dark ? 'dark' : 'light');
+}
+function toggleTheme() { dark = !dark; applyTheme(); }
+function onDarkToggle() { dark = document.getElementById('darkToggle').checked; applyTheme(); }
+
+// ==================== AUTH ====================
+document.addEventListener('authChange', e => {
+  const user = e.detail;
+  if (user) {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('userChip').style.display = 'flex';
+    document.getElementById('userName').textContent = user.displayName?.split(' ')[0] || user.email;
+    document.getElementById('userAvatar').src = user.photoURL || '';
+    loadAll(); loadSettings(); loadEjsConfig();
+  } else {
+    document.getElementById('loginScreen').style.display = 'flex';
+    document.getElementById('userChip').style.display = 'none';
+  }
+});
+
+// ==================== DATA ====================
+let allProducts = [], currentFilter = '', existProd = null;
+let pendImg = null, editPendImg = null, editRemoveImg = false;
+
 function daysLeft(exp) {
   if (!exp) return null;
-  const t = new Date(); t.setHours(0,0,0,0);
-  const e = new Date(exp); e.setHours(0,0,0,0);
-  return Math.round((e - t) / 86400000);
+  const a = new Date(); a.setHours(0,0,0,0);
+  const b = new Date(exp); b.setHours(0,0,0,0);
+  return Math.round((b-a)/86400000);
 }
 function getStatus(exp) {
   const d = daysLeft(exp);
-  if (d === null) return 'none';
-  if (d < 0) return 'expired';
-  if (d <= 7) return 'critical';
-  if (d <= 30) return 'warning';
+  if (d===null) return 'none';
+  if (d<0) return 'expired';
+  if (d<=7) return 'critical';
+  if (d<=30) return 'warning';
   return 'ok';
 }
-function fmtDate(str) {
-  if (!str) return '—';
-  const [y,m,d] = str.split('-');
+function fmtDate(s) {
+  if (!s) return '—';
+  const [y,m,d] = s.split('-');
   return `${d}.${m}.${y}`;
 }
+function waitFb(fn) { if (window.fbReady) fn(); else document.addEventListener('fbReady', fn); }
 
-// ---- FIREBASE WAIT ----
-function waitFb(fn) {
-  if (window.fbReady) fn();
-  else document.addEventListener('fbReady', fn);
-}
-
-// ---- LOAD ALL ----
 async function loadAll() {
   try {
     allProducts = await window.fbGetAll();
     allProducts.sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||''));
-    updateStats();
-    renderProducts();
-    renderAlerts();
-  } catch(e) {
-    toast('Firebase xətası: ' + e.message, 'error');
-  }
+    updateStats(); renderProducts(); renderAlerts(); loadMembers();
+  } catch(e) { toast('Firebase: '+e.message,'error'); }
 }
 
-// ---- STATS ----
 function updateStats() {
-  const total = allProducts.length;
-  const expired = allProducts.filter(p => getStatus(p.expiry_date) === 'expired').length;
-  const critical = allProducts.filter(p => getStatus(p.expiry_date) === 'critical').length;
-  const warning = allProducts.filter(p => getStatus(p.expiry_date) === 'warning').length;
-  document.getElementById('sTotal').textContent = total;
-  document.getElementById('sExpired').textContent = expired;
-  document.getElementById('sCritical').textContent = critical;
-  document.getElementById('sWarning').textContent = warning;
-  const alertCount = expired + critical;
-  const badge = document.getElementById('alertBadge');
-  badge.textContent = alertCount;
-  badge.style.display = alertCount > 0 ? 'inline' : 'none';
+  const exp = allProducts.filter(p=>getStatus(p.expiry_date)==='expired').length;
+  const crit = allProducts.filter(p=>getStatus(p.expiry_date)==='critical').length;
+  const warn = allProducts.filter(p=>getStatus(p.expiry_date)==='warning').length;
+  document.getElementById('sTotal').textContent = allProducts.length;
+  document.getElementById('sExpired').textContent = exp;
+  document.getElementById('sCritical').textContent = crit;
+  document.getElementById('sWarning').textContent = warn;
+  const cnt = exp+crit;
+  const b = document.getElementById('alertBadge');
+  b.textContent = cnt; b.style.display = cnt>0 ? 'inline' : 'none';
 }
 
-// ---- TABS ----
+// ==================== TABS ====================
 function switchTab(t) {
-  document.querySelectorAll('.tab-content').forEach(x => x.classList.remove('active'));
-  document.querySelectorAll('.nav-tab').forEach(x => x.classList.remove('active'));
-  document.querySelectorAll('.mtab').forEach(x => x.classList.remove('active'));
-  document.getElementById('tab-' + t).classList.add('active');
-  const tabs = ['scan','products','alerts'];
-  const i = tabs.indexOf(t);
-  document.querySelectorAll('.nav-tab')[i]?.classList.add('active');
-  document.getElementById('mt-' + t)?.classList.add('active');
-  if (t !== 'scan' && scanActive) stopScanner();
-  if (t === 'products' || t === 'alerts') loadAll();
+  document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('active'));
+  ['scan','products','alerts','settings'].forEach(n => {
+    document.getElementById('nt-'+n)?.classList.remove('active');
+    document.getElementById('mt-'+n)?.classList.remove('active');
+  });
+  document.getElementById('tab-'+t).classList.add('active');
+  document.getElementById('nt-'+t)?.classList.add('active');
+  document.getElementById('mt-'+t)?.classList.add('active');
+  if (t==='products'||t==='alerts') loadAll();
+  if (t==='settings') { loadSettings(); loadMembers(); loadEjsConfig(); }
 }
 
-// ---- SCANNER ----
-// ---- SCANNER ENGINE ----
-// 1) BarcodeDetector API (Chrome/Android native - ən güclü, Gamma Scan ilə eyni motor)
-// 2) ZXing fallback (digər brauzerlər üçün)
+// ==================== SCANNER ====================
+let scanStream=null, scanInterval=null, scanReader=null, torchOn=false, lastCode='', lastCodeTs=0;
 
-let barcodeDetectorInterval = null;
+async function openScanner() {
+  const modal = document.getElementById('scannerModal');
+  modal.classList.add('open');
+  document.body.style.overflow='hidden';
 
-async function startScanner() {
-  scanActive = true;
-  const btn = document.getElementById('startBtn');
-  btn.textContent = '⏹ Dayandır'; btn.classList.add('stop'); btn.onclick = stopScanner;
-  document.getElementById('scanPh').style.display = 'none';
-  document.getElementById('scanOverlay').style.display = 'flex';
+  // Push state for back-button support
+  history.pushState({scanner:true},'');
 
-  const videoEl = document.getElementById('video');
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const constraints = isIOS
+    ? { video: { facingMode: { exact: 'environment' } } }
+    : { video: { facingMode: { ideal: 'environment' }, width:{ideal:1920}, height:{ideal:1080} } };
 
-  // Yüksək keyfiyyətli kamera ayarları (arxa kamera, autofocus, yüksək həll)
-  const constraints = {
-    video: {
-      facingMode: { ideal: 'environment' },
-      width: { ideal: 1920, min: 1280 },
-      height: { ideal: 1080, min: 720 },
-      focusMode: { ideal: 'continuous' },
-      advanced: [{ zoom: 1 }]
-    }
-  };
-
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia(constraints);
-  } catch(e) {
-    // Sadə fallback
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-    } catch(e2) {
-      toast('Kameraya giriş mümkün olmadı: ' + e2.message, 'error');
-      stopScanner(); return;
+  try { scanStream = await navigator.mediaDevices.getUserMedia(constraints); }
+  catch(e) {
+    try { scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' } }); }
+    catch(e2) {
+      try { scanStream = await navigator.mediaDevices.getUserMedia({ video: true }); }
+      catch(e3) { toast('Kamera icazəsi yoxdur', 'error'); closeScanner(); return; }
     }
   }
 
-  videoEl.srcObject = stream;
-  await videoEl.play();
+  const vid = document.getElementById('scanVideo');
+  vid.srcObject = scanStream;
+  try { await vid.play(); } catch(e) {}
 
-  // Autofocus + Torch cəhdi (Android üçün)
-  try {
-    const track = stream.getVideoTracks()[0];
-    const caps = track.getCapabilities();
-    const settings = {};
-    if (caps.focusMode && caps.focusMode.includes('continuous')) settings.focusMode = 'continuous';
-    if (Object.keys(settings).length) await track.applyConstraints({ advanced: [settings] });
-  } catch(e) { /* ignore */ }
+  // Continuous autofocus (Android)
+  if (!isIOS) {
+    try {
+      const track = scanStream.getVideoTracks()[0];
+      const caps = track.getCapabilities?.() || {};
+      if (caps.focusMode?.includes('continuous'))
+        await track.applyConstraints({ advanced: [{ focusMode:'continuous' }] });
+    } catch(e) {}
+  }
 
-  // BarcodeDetector API mövcuddursa istifadə et (Chrome 83+, Android Chrome)
   if ('BarcodeDetector' in window) {
-    toast('🚀 Native barkod oxuyucu aktiv', 'info');
-    const detector = new BarcodeDetector({
-      formats: [
-        'ean_13', 'ean_8', 'code_128', 'code_39', 'code_93',
-        'upc_a', 'upc_e', 'qr_code', 'data_matrix', 'itf',
-        'codabar', 'aztec', 'pdf417'
-      ]
-    });
-
-    barcodeDetectorInterval = setInterval(async () => {
-      if (!scanActive) { clearInterval(barcodeDetectorInterval); return; }
+    const detector = new BarcodeDetector({ formats:['ean_13','ean_8','code_128','code_39','code_93','upc_a','upc_e','qr_code','data_matrix','itf','codabar','aztec','pdf417'] });
+    scanInterval = setInterval(async () => {
       try {
-        const barcodes = await detector.detect(videoEl);
-        if (barcodes.length > 0) {
-          const code = barcodes[0].rawValue;
-          if (code && code !== lastScanned) {
-            lastScanned = code;
-            onBarcodeFound(code);
-          }
-        }
-      } catch(e) { /* frame skip */ }
-    }, 150); // hər 150ms-də bir yoxla
-
-  } else {
-    // ZXing fallback
-    if (!window.ZXing) { toast('Kamera kitabxanası yüklənmir', 'error'); stopScanner(); return; }
-    toast('ZXing oxuyucu aktiv', 'info');
+        const res = await detector.detect(vid);
+        if (res.length) gotCode(res[0].rawValue);
+      } catch(e) {}
+    }, 100);
+  } else if (window.ZXing) {
     const hints = new Map();
     hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-    hints.set(ZXing.DecodeHintType.ALSO_INVERTED, true);
-    codeReader = new ZXing.BrowserMultiFormatReader(hints);
-    codeReader.decodeFromStream(stream, videoEl, (result, err) => {
-      if (result) {
-        const code = result.getText();
-        if (code !== lastScanned) { lastScanned = code; onBarcodeFound(code); }
-      }
-    });
+    scanReader = new ZXing.BrowserMultiFormatReader(hints);
+    scanReader.decodeFromStream(scanStream, vid, r => { if (r) gotCode(r.getText()); });
+  } else {
+    toast('Barkod kitabxanası yüklənmir', 'error');
   }
 }
 
-function stopScanner() {
-  // BarcodeDetector interval dayandır
-  if (barcodeDetectorInterval) { clearInterval(barcodeDetectorInterval); barcodeDetectorInterval = null; }
-  // ZXing dayandır
-  if (codeReader) { codeReader.reset(); codeReader = null; }
-  scanActive = false;
-  const btn = document.getElementById('startBtn');
-  btn.textContent = '▶ Kameranı Başlat'; btn.classList.remove('stop'); btn.onclick = startScanner;
-  document.getElementById('scanOverlay').style.display = 'none';
-  document.getElementById('scanPh').style.display = 'block';
-  const v = document.getElementById('video');
-  if (v.srcObject) { v.srcObject.getTracks().forEach(t => t.stop()); v.srcObject = null; }
+function gotCode(code) {
+  const now = Date.now();
+  if (code === lastCode && now-lastCodeTs < 2000) return;
+  lastCode = code; lastCodeTs = now;
+  try { navigator.vibrate?.(60); } catch(e) {}
+  const beep = document.getElementById('scanBeep');
+  beep.textContent = code; beep.style.display='block';
+  setTimeout(() => { beep.style.display='none'; }, 900);
+  setTimeout(() => { closeScanner(); onBarcodeFound(code); }, 700);
 }
+
+function closeScanner() {
+  if (scanInterval) { clearInterval(scanInterval); scanInterval=null; }
+  if (scanReader) { scanReader.reset(); scanReader=null; }
+  if (scanStream) { scanStream.getTracks().forEach(t=>t.stop()); scanStream=null; }
+  torchOn=false;
+  document.getElementById('scannerModal').classList.remove('open');
+  document.body.style.overflow='';
+}
+
+async function toggleTorch() {
+  if (!scanStream) return;
+  try {
+    const track = scanStream.getVideoTracks()[0];
+    torchOn = !torchOn;
+    await track.applyConstraints({ advanced:[{torch:torchOn}] });
+    document.querySelector('.scan-torch-btn').textContent = torchOn ? '🔦' : '💡';
+  } catch(e) { toast('Fənar dəstəklənmir','warning'); }
+}
+
+window.addEventListener('popstate', e => {
+  if (document.getElementById('scannerModal').classList.contains('open')) closeScanner();
+});
 
 function checkManual() {
   const v = document.getElementById('manualInput').value.trim();
-  if (v) { onBarcodeFound(v); document.getElementById('manualInput').value = ''; }
+  if (v) { onBarcodeFound(v); document.getElementById('manualInput').value=''; }
 }
 
 async function onBarcodeFound(barcode) {
-  if (scanActive) stopScanner();
   document.getElementById('fBarcode').value = barcode;
-  toast('Barkod: ' + barcode, 'info');
+  toast('🔍 '+barcode,'info');
   try {
     const data = await window.fbScan(barcode);
     if (data.exists) {
-      existingProduct = data;
-      let msg = `"${data.name}" artıq qeydiyyatdadır.`;
+      existProd = data;
+      let msg = `"${data.name}"`;
       if (data.expiry_date) {
-        msg += ` MHT: ${fmtDate(data.expiry_date)}.`;
         const d = daysLeft(data.expiry_date);
-        if (d < 0) msg += ` ⛔ ${Math.abs(d)} gün əvvəl bitib!`;
-        else if (d <= 7) msg += ` 🔴 ${d} gün qalıb!`;
-        else if (d <= 30) msg += ` 🟡 ${d} gün qalıb.`;
+        msg += ` | ${fmtDate(data.expiry_date)}`;
+        if (d<0) msg += ` ⛔ ${Math.abs(d)} ${_('days_ago')}`;
+        else if (d<=7) msg += ` 🔴 ${d} ${_('days_left')}`;
+        else if (d<=30) msg += ` 🟡 ${d} ${_('days_left')}`;
       }
       document.getElementById('existDetail').textContent = msg;
       document.getElementById('existWarn').style.display = 'block';
       document.getElementById('fName').value = data.name;
-      document.getElementById('fExpiry').value = data.expiry_date || '';
-      document.getElementById('fNotes').value = data.notes || '';
+      document.getElementById('fExpiry').value = data.expiry_date||'';
+      document.getElementById('fNotes').value = data.notes||'';
+      if (data.image_url) {
+        const p=document.getElementById('imgPreview');
+        p.src=data.image_url; p.style.display='block';
+        document.getElementById('imgActions').style.display='flex';
+      }
     } else {
-      document.getElementById('existWarn').style.display = 'none';
-      existingProduct = null;
+      document.getElementById('existWarn').style.display='none';
+      existProd=null;
     }
-  } catch(e) {
-    toast('Firebase xətası', 'error');
-  }
+  } catch(e) { toast('Firebase xətası','error'); }
   switchTab('scan');
 }
 
-function doUpdate() {
-  document.getElementById('existWarn').style.display = 'none';
-  toast('MHT-ni yeniləyə bilərsiniz', 'info');
-}
-
+function doUpdate() { document.getElementById('existWarn').style.display='none'; }
 function cancelExist() {
-  document.getElementById('existWarn').style.display = 'none';
-  existingProduct = null; lastScanned = '';
-  ['fBarcode','fName','fExpiry','fNotes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('existWarn').style.display='none';
+  existProd=null; lastCode='';
+  ['fBarcode','fName','fExpiry','fNotes'].forEach(id=>document.getElementById(id).value='');
+  clearImg('imgFile','imgPreview','imgActions',false);
 }
 
-// ---- SAVE ----
-async function saveProduct() {
-  const barcode = document.getElementById('fBarcode').value.trim();
-  const name = document.getElementById('fName').value.trim();
-  const expiry = document.getElementById('fExpiry').value;
-  const notes = document.getElementById('fNotes').value.trim();
-  if (!barcode || !name) { toast('Barkod və ad mütləqdir!', 'error'); return; }
+// ==================== IMAGE ====================
+function compressImg(file, maxKB=250) {
+  return new Promise((res,rej) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        let w=img.width, h=img.height;
+        if (w>900||h>900) { const r=Math.min(900/w,900/h); w=Math.round(w*r); h=Math.round(h*r); }
+        const canvas=document.createElement('canvas');
+        canvas.width=w; canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        const tryQ = q => {
+          const url = canvas.toDataURL('image/jpeg',q);
+          const kb = Math.round(url.length*3/4/1024);
+          if (kb<=maxKB||q<=0.25) res(url); else tryQ(Math.max(q-0.1,0.25));
+        };
+        tryQ(0.85);
+      };
+      img.onerror=rej; img.src=e.target.result;
+    };
+    reader.onerror=rej; reader.readAsDataURL(file);
+  });
+}
+
+async function onImgFile(input, prevId, actId) {
+  if (!input.files[0]) return;
   try {
-    const existing = allProducts.find(p => p.barcode === barcode);
-    await window.fbSave({ barcode, name, expiry_date: expiry || null, notes, createdAt: existing?.createdAt || null });
-    toast(existing ? '✅ Yeniləndi!' : '✅ Əlavə edildi!', 'success');
-    ['fBarcode','fName','fExpiry','fNotes'].forEach(id => document.getElementById(id).value = '');
-    document.getElementById('existWarn').style.display = 'none';
-    existingProduct = null; lastScanned = '';
-    await loadAll();
-  } catch(e) {
-    toast('Saxlama xətası: ' + e.message, 'error');
-  }
+    const compressed = await compressImg(input.files[0]);
+    if (prevId==='imgPreview') pendImg=compressed;
+    else { editPendImg=compressed; editRemoveImg=false; }
+    const p=document.getElementById(prevId);
+    p.src=compressed; p.style.display='block';
+    document.getElementById(actId).style.display='flex';
+  } catch(e) { toast('Şəkil oxunmadı','error'); }
 }
 
-// ---- RENDER PRODUCTS ----
+function clearImg(fileId, prevId, actId, isEdit) {
+  if (isEdit) { editPendImg=null; editRemoveImg=true; }
+  else pendImg=null;
+  document.getElementById(prevId).style.display='none';
+  document.getElementById(prevId).src='';
+  document.getElementById(actId).style.display='none';
+  document.getElementById(fileId).value='';
+}
+
+// ==================== SAVE ====================
+async function saveProduct() {
+  const barcode=document.getElementById('fBarcode').value.trim();
+  const name=document.getElementById('fName').value.trim();
+  const expiry=document.getElementById('fExpiry').value;
+  const notes=document.getElementById('fNotes').value.trim();
+  if (!barcode||!name) { toast(_('err_required'),'error'); return; }
+  let image_url=existProd?.image_url||null;
+  if (pendImg) {
+    toast(_('uploading'),'info');
+    try { image_url=await window.fbUploadImage(barcode,pendImg); }
+    catch(e) { toast('Şəkil xətası: '+e.message,'error'); return; }
+  }
+  const ex=allProducts.find(p=>p.barcode===barcode);
+  await window.fbSave({barcode,name,expiry_date:expiry||null,notes,image_url,createdAt:ex?.createdAt||null,createdBy:ex?.createdBy||null});
+  toast('✅ '+(ex?_('updated'):_('saved')),'success');
+  ['fBarcode','fName','fExpiry','fNotes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('existWarn').style.display='none';
+  existProd=null; lastCode=''; clearImg('imgFile','imgPreview','imgActions',false);
+  await loadAll();
+}
+
+// ==================== PRODUCTS ====================
 function setFilter(f) {
-  currentFilter = f;
-  ['fa','fe','fc','fw'].forEach(id => document.getElementById(id)?.classList.remove('active'));
-  const map = {'':'fa','expired':'fe','critical':'fc','warning':'fw'};
-  document.getElementById(map[f])?.classList.add('active');
+  currentFilter=f;
+  ['fa','fe','fc','fw'].forEach(id=>document.getElementById(id)?.classList.remove('active'));
+  document.getElementById({''    :'fa','expired':'fe','critical':'fc','warning':'fw'}[f])?.classList.add('active');
   renderProducts();
 }
 
 function renderProducts() {
-  const search = (document.getElementById('searchInp')?.value || '').toLowerCase();
-  let list = allProducts.filter(p => {
-    const matchSearch = !search || p.name?.toLowerCase().includes(search) || p.barcode?.includes(search);
-    const matchFilter = !currentFilter || getStatus(p.expiry_date) === currentFilter;
-    return matchSearch && matchFilter;
+  const q=(document.getElementById('searchInp')?.value||'').toLowerCase();
+  const list=allProducts.filter(p=>{
+    const ms=!q||p.name?.toLowerCase().includes(q)||p.barcode?.includes(q);
+    const mf=!currentFilter||getStatus(p.expiry_date)===currentFilter;
+    return ms&&mf;
   });
-
-  const grid = document.getElementById('productsGrid');
-  if (!list.length) {
-    grid.innerHTML = `<div class="empty"><div class="eicon">🔍</div><h3>Nəticə tapılmadı</h3><p>Başqa axtarış sınayın</p></div>`;
-    return;
-  }
-
-  const statusTxt = {ok:'Normal',warning:'Diqqət',critical:'Kritik',expired:'Bitib'};
-  const statusColor = {ok:'var(--green)',warning:'var(--yellow)',critical:'var(--orange)',expired:'var(--red)'};
-
-  grid.innerHTML = list.map(p => {
-    const st = getStatus(p.expiry_date);
-    const d = daysLeft(p.expiry_date);
-    const daysStr = d !== null ? (d < 0 ? `${Math.abs(d)} gün əvvəl bitib` : `${d} gün qalıb`) : '';
-    return `
-    <div class="pcard ${st}">
-      <div class="pcard-img">${p.image_url ? `<img src="${p.image_url}" alt="${p.name}" loading="lazy">` : '📦'}</div>
+  const grid=document.getElementById('productsGrid');
+  if (!list.length) { grid.innerHTML=`<div class="empty"><div class="eicon">🔍</div><h3>${_('no_results')}</h3></div>`; return; }
+  const sT={ok:_('s_ok'),warning:_('s_warning'),critical:_('s_critical'),expired:_('s_expired')};
+  const sC={ok:'var(--green)',warning:'var(--yellow)',critical:'var(--orange)',expired:'var(--red)'};
+  grid.innerHTML=list.map(p=>{
+    const st=getStatus(p.expiry_date), d=daysLeft(p.expiry_date);
+    const dStr=d!==null?(d<0?`${Math.abs(d)} ${_('days_ago')}`:`${d} ${_('days_left')}`):'';
+    const sb=p.barcode.replace(/'/g,"\\'"), sn=(p.name||'').replace(/'/g,"\\'");
+    return `<div class="pcard ${st}">
+      <div class="pcard-img">${p.image_url?`<img src="${p.image_url}" alt="${p.name}" loading="lazy">`:'📦'}</div>
       <div class="pcard-body">
         <div class="pname" title="${p.name}">${p.name}</div>
         <div class="pbarcode">${p.barcode}</div>
+        ${p.updatedBy?`<div class="pby">${_('by')} ${p.updatedBy}</div>`:''}
         <div class="pexpiry">
-          <span class="exp-date">MHT: ${fmtDate(p.expiry_date)}</span>
-          <span class="sbadge ${p.expiry_date ? st : 'none'}">${p.expiry_date ? (statusTxt[st]||'—') : '—'}</span>
+          <span class="exp-date">${_('expiry_lbl')} ${fmtDate(p.expiry_date)}</span>
+          <span class="sbadge ${p.expiry_date?st:'none'}">${p.expiry_date?(sT[st]||'—'):'—'}</span>
         </div>
-        ${daysStr ? `<div class="days-info" style="color:${statusColor[st]||'var(--text2)'}">${daysStr}</div>` : ''}
+        ${dStr?`<div class="days-info" style="color:${sC[st]||'var(--text2)'}">${dStr}</div>`:''}
         <div class="pactions">
-          <button class="abtn edit" onclick="openEdit('${p.barcode}')">✏️ Redaktə</button>
-          <button class="abtn del" onclick="delProduct('${p.barcode}','${p.name.replace(/'/g,"\\'")}')">🗑 Sil</button>
+          <button class="abtn edit" onclick="openEdit('${sb}')">✏️</button>
+          <button class="abtn del" onclick="delProduct('${sb}','${sn}')">🗑</button>
         </div>
       </div>
     </div>`;
   }).join('');
 }
 
-// ---- EDIT ----
+// ==================== EDIT ====================
 function openEdit(barcode) {
-  const p = allProducts.find(x => x.barcode === barcode);
-  if (!p) return;
-  document.getElementById('eBarcode').value = barcode;
-  document.getElementById('eName').value = p.name;
-  document.getElementById('eExpiry').value = p.expiry_date || '';
-  document.getElementById('eNotes').value = p.notes || '';
+  const p=allProducts.find(x=>x.barcode===barcode); if (!p) return;
+  editPendImg=null; editRemoveImg=false;
+  document.getElementById('eBarcode').value=barcode;
+  document.getElementById('eName').value=p.name;
+  document.getElementById('eExpiry').value=p.expiry_date||'';
+  document.getElementById('eNotes').value=p.notes||'';
+  document.getElementById('eOldImg').value=p.image_url||'';
+  const ep=document.getElementById('eImgPreview');
+  if (p.image_url) { ep.src=p.image_url; ep.style.display='block'; document.getElementById('eImgActions').style.display='flex'; }
+  else { ep.style.display='none'; ep.src=''; document.getElementById('eImgActions').style.display='none'; }
   document.getElementById('editModal').classList.add('open');
 }
 function closeModal() { document.getElementById('editModal').classList.remove('open'); }
+
 async function updateProduct() {
-  const barcode = document.getElementById('eBarcode').value;
-  const name = document.getElementById('eName').value.trim();
-  const expiry = document.getElementById('eExpiry').value;
-  const notes = document.getElementById('eNotes').value.trim();
-  if (!name) { toast('Ad boş ola bilməz', 'error'); return; }
-  const existing = allProducts.find(p => p.barcode === barcode);
-  await window.fbSave({ barcode, name, expiry_date: expiry || null, notes, createdAt: existing?.createdAt || null });
-  toast('✅ Yeniləndi!', 'success');
-  closeModal();
-  await loadAll();
-}
-
-// ---- DELETE ----
-async function delProduct(barcode, name) {
-  if (!confirm(`"${name}" silinsin?`)) return;
-  await window.fbDelete(barcode);
-  toast('🗑 Silindi', 'warning');
-  await loadAll();
-}
-
-// ---- ALERTS ----
-function renderAlerts() {
-  const alerts = allProducts
-    .filter(p => p.expiry_date && ['expired','critical','warning'].includes(getStatus(p.expiry_date)))
-    .sort((a,b) => (a.expiry_date||'').localeCompare(b.expiry_date||''));
-
-  const list = document.getElementById('alertsList');
-  if (!alerts.length) {
-    list.innerHTML = `<div class="empty"><div class="eicon">✅</div><h3>Xəbərdarlıq yoxdur</h3><p>Bütün məhsullar normaldır</p></div>`;
-    return;
+  const barcode=document.getElementById('eBarcode').value;
+  const name=document.getElementById('eName').value.trim();
+  const expiry=document.getElementById('eExpiry').value;
+  const notes=document.getElementById('eNotes').value.trim();
+  const oldImg=document.getElementById('eOldImg').value;
+  if (!name) { toast(_('err_name'),'error'); return; }
+  let image_url=editRemoveImg?null:(oldImg||null);
+  if (editPendImg) {
+    toast(_('uploading'),'info');
+    try { image_url=await window.fbUploadImage(barcode,editPendImg); }
+    catch(e) { toast('Şəkil xətası: '+e.message,'error'); return; }
   }
-  const icons = {expired:'⛔',critical:'🔴',warning:'🟡'};
-  const stTxt = {expired:'Bitib',critical:'Kritik',warning:'Diqqət'};
-  list.innerHTML = alerts.map(a => {
-    const st = getStatus(a.expiry_date);
-    const d = daysLeft(a.expiry_date);
-    const dStr = d < 0 ? `${Math.abs(d)} gün əvvəl bitib!` : `${d} gün qalıb`;
-    return `
-    <div class="aitem ${st}">
+  const ex=allProducts.find(p=>p.barcode===barcode);
+  await window.fbSave({barcode,name,expiry_date:expiry||null,notes,image_url,createdAt:ex?.createdAt||null,createdBy:ex?.createdBy||null});
+  toast('✅ '+_('updated'),'success');
+  closeModal(); await loadAll();
+}
+
+async function delProduct(barcode,name) {
+  if (!confirm(`"${name}" ${_('confirm_del')}`)) return;
+  const p=allProducts.find(x=>x.barcode===barcode);
+  await window.fbDelete(barcode,p?.image_url);
+  toast('🗑 '+_('deleted'),'warning');
+  await loadAll();
+}
+
+// ==================== ALERTS ====================
+function renderAlerts() {
+  const alerts=allProducts.filter(p=>p.expiry_date&&['expired','critical','warning'].includes(getStatus(p.expiry_date)))
+    .sort((a,b)=>(a.expiry_date||'').localeCompare(b.expiry_date||''));
+  const list=document.getElementById('alertsList');
+  if (!alerts.length) { list.innerHTML=`<div class="empty"><div class="eicon">✅</div><h3>${_('no_alerts')}</h3><p>${_('all_ok')}</p></div>`; return; }
+  const icons={expired:'⛔',critical:'🔴',warning:'🟡'};
+  list.innerHTML=alerts.map(a=>{
+    const st=getStatus(a.expiry_date),d=daysLeft(a.expiry_date);
+    const dStr=d<0?`${Math.abs(d)} ${_('days_ago')}`:`${d} ${_('days_left')}`;
+    return `<div class="aitem ${st}">
       <div class="aicon">${icons[st]}</div>
       <div class="ainfo">
         <div class="aname">${a.name}</div>
-        <div class="adate">MHT: ${fmtDate(a.expiry_date)} — ${dStr}</div>
+        <div class="adate">${_('expiry_lbl')} ${fmtDate(a.expiry_date)} — ${dStr}</div>
         <div class="abc">${a.barcode}</div>
       </div>
-      <span class="sbadge ${st}">${stTxt[st]}</span>
+      <span class="sbadge ${st}">${{expired:_('s_expired'),critical:_('s_critical'),warning:_('s_warning')}[st]}</span>
     </div>`;
   }).join('');
 }
 
-// ---- EXCEL EXPORT ----
+// ==================== EXCEL ====================
 async function exportExcel() {
-  if (!window.XLSX) { toast('XLSX kitabxanası yüklənmir', 'error'); return; }
+  if (!window.XLSX) { toast('XLSX yüklənmir','error'); return; }
   await loadAll();
-  const statusTxt = {ok:'Normal',warning:'Diqqət',critical:'Kritik',expired:'Bitib',none:'—'};
-  const data = [
-    ['Barkod','Məhsulun Adı','MHT Tarixi','Qalan Günlər','Vəziyyət','Qeydlər','Əlavə Edilib','Yenilənib'],
-    ...allProducts.map(p => {
-      const d = daysLeft(p.expiry_date);
-      return [p.barcode, p.name, fmtDate(p.expiry_date), d !== null ? d : '—', statusTxt[getStatus(p.expiry_date)], p.notes||'', p.createdAt||'', p.updatedAt||''];
+  const sT={ok:_('s_ok'),warning:_('s_warning'),critical:_('s_critical'),expired:_('s_expired'),none:'—'};
+  const data=[
+    ['Barcode',_('lbl_name'),_('lbl_expiry'),'Days',_('filter_all'),_('lbl_notes'),'Created','Updated'],
+    ...allProducts.map(p=>{
+      const d=daysLeft(p.expiry_date);
+      return [p.barcode,p.name,fmtDate(p.expiry_date),d!==null?d:'—',sT[getStatus(p.expiry_date)],p.notes||'',p.createdAt||'',p.updatedAt||''];
     })
   ];
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  ws['!cols'] = [20,35,15,15,12,30,22,22].map(w => ({wch:w}));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Məhsullar');
-  XLSX.writeFile(wb, `mehsullar_${new Date().toISOString().slice(0,10)}.xlsx`);
-  toast('📊 Excel yükləndi!', 'success');
+  const ws=XLSX.utils.aoa_to_sheet(data);
+  ws['!cols']=[20,35,15,10,12,30,22,22].map(w=>({wch:w}));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Products');
+  XLSX.writeFile(wb,`stokskan_${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast('📊 Excel!','success');
 }
 
-// ---- EXCEL IMPORT ----
 async function importExcel(input) {
   if (!input.files[0]) return;
-  const reader = new FileReader();
-  reader.onload = async e => {
+  const reader=new FileReader();
+  reader.onload=async e=>{
     try {
-      const wb = XLSX.read(e.target.result, {type:'binary', cellDates:true});
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-      let added = 0, updated = 0, errors = [];
-      for (let i = 1; i < rows.length; i++) {
-        const [barcode, name, expiryRaw, , , notes] = rows[i];
-        if (!barcode && !name) continue;
-        const bc = String(barcode||'').trim();
-        const nm = String(name||'').trim();
-        if (!bc || !nm) { errors.push(`Sətir ${i+1}: boş`); continue; }
-        let expiry = null;
+      const wb=XLSX.read(e.target.result,{type:'binary',cellDates:true});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+      let added=0,updated=0;
+      for (let i=1;i<rows.length;i++) {
+        const [barcode,name,expiryRaw,,,notes]=rows[i];
+        if (!barcode&&!name) continue;
+        const bc=String(barcode||'').trim(),nm=String(name||'').trim();
+        if (!bc||!nm) continue;
+        let expiry=null;
         if (expiryRaw) {
-          if (expiryRaw instanceof Date) {
-            expiry = expiryRaw.toISOString().slice(0,10);
-          } else {
-            const s = String(expiryRaw).trim();
-            const match = s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
-            if (match) expiry = `${match[3]}-${match[2]}-${match[1]}`;
-            else if (/^\d{4}-\d{2}-\d{2}$/.test(s)) expiry = s;
+          if (expiryRaw instanceof Date) expiry=expiryRaw.toISOString().slice(0,10);
+          else {
+            const s=String(expiryRaw).trim();
+            const m=s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+            if (m) expiry=`${m[3]}-${m[2]}-${m[1]}`;
+            else if (/^\d{4}-\d{2}-\d{2}$/.test(s)) expiry=s;
           }
         }
-        const existing = allProducts.find(p => p.barcode === bc);
-        await window.fbSave({ barcode: bc, name: nm, expiry_date: expiry, notes: String(notes||'').trim(), createdAt: existing?.createdAt || null });
-        existing ? updated++ : added++;
+        const ex=allProducts.find(p=>p.barcode===bc);
+        await window.fbSave({barcode:bc,name:nm,expiry_date:expiry,notes:String(notes||'').trim(),createdAt:ex?.createdAt||null});
+        ex?updated++:added++;
       }
-      toast(`✅ ${added} əlavə, ${updated} yeniləndi`, 'success');
-      if (errors.length) errors.forEach(er => toast(er, 'warning'));
+      toast(`✅ +${added} / ✏️ ${updated}`,'success');
       await loadAll();
-    } catch(err) {
-      toast('Import xətası: ' + err.message, 'error');
-    }
-    input.value = '';
+    } catch(err) { toast('Import xətası: '+err.message,'error'); }
+    input.value='';
   };
   reader.readAsBinaryString(input.files[0]);
 }
 
-// ---- TOAST ----
-function toast(msg, type = 'info') {
-  const c = document.getElementById('toastWrap');
-  const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  t.textContent = msg;
-  c.appendChild(t);
-  setTimeout(() => { t.style.opacity='0'; t.style.transform='translateX(100%)'; t.style.transition='.3s'; setTimeout(()=>t.remove(), 300); }, 3500);
+// ==================== SETTINGS ====================
+async function loadSettings() {
+  if (!window.fbGetSettings) return;
+  try {
+    const s=await window.fbGetSettings();
+    if (s) {
+      document.getElementById('notifEnabled').checked=!!s.notifEnabled;
+      if (s.notifTime) document.getElementById('notifTime').value=s.notifTime;
+    }
+  } catch(e) {}
 }
 
-// ---- INIT ----
-waitFb(() => {
-  // Hide config warning if config is filled
-  const cfg = document.querySelector('#configWarn');
-  if (!document.querySelector('script[type="module"]')?.textContent?.includes('BURAYA_API_KEY')) {
-    cfg.style.display = 'none';
-  }
-  loadAll();
-});
+async function saveSettings() {
+  try {
+    await window.fbSaveSettings({
+      notifEnabled: document.getElementById('notifEnabled').checked,
+      notifTime: document.getElementById('notifTime').value,
+      email: window.currentUser?.email
+    });
+    toast('✅ '+_('saved'),'success');
+  } catch(e) { toast('Xəta: '+e.message,'error'); }
+}
+
+function loadEjsConfig() {
+  const k=localStorage.getItem('ejs_key')||'';
+  const s=localStorage.getItem('ejs_service')||'';
+  const t=localStorage.getItem('ejs_template')||'';
+  document.getElementById('ejsKey').value=k;
+  document.getElementById('ejsService').value=s;
+  document.getElementById('ejsTemplate').value=t;
+}
+
+function saveEjsConfig() {
+  const k=document.getElementById('ejsKey').value.trim();
+  const s=document.getElementById('ejsService').value.trim();
+  const t=document.getElementById('ejsTemplate').value.trim();
+  if (k) localStorage.setItem('ejs_key',k);
+  if (s) localStorage.setItem('ejs_service',s);
+  if (t) localStorage.setItem('ejs_template',t);
+  toast('✅ '+_('saved'),'success');
+}
+
+function loadMembers() {
+  const emails=[...new Set(allProducts.flatMap(p=>[p.updatedBy,p.createdBy]).filter(Boolean))];
+  const list=document.getElementById('membersList');
+  if (!emails.length) { list.innerHTML=`<div style="color:var(--text2);font-size:13px">—</div>`; return; }
+  list.innerHTML=emails.map(em=>{
+    const init=em[0].toUpperCase(), isMe=em===window.currentUser?.email;
+    return `<div class="member-item"><div class="member-av">${init}</div><span>${em}${isMe?' (siz / you / Sie)':''}</span></div>`;
+  }).join('');
+}
+
+async function sendTestEmail() {
+  const email=window.currentUser?.email;
+  if (!email) { toast('Giriş edilməyib','error'); return; }
+  const expiring=allProducts.filter(p=>p.expiry_date&&['expired','critical','warning'].includes(getStatus(p.expiry_date)));
+  if (!expiring.length) { toast(_('no_alerts')+' — email göndərilmir','info'); return; }
+  const k=localStorage.getItem('ejs_key'),s=localStorage.getItem('ejs_service'),tp=localStorage.getItem('ejs_template');
+  if (!k||!s||!tp) { toast('EmailJS konfiqurasiyası lazımdır (Ayarlar → Email)','warning'); return; }
+  const lines=expiring.map(p=>{
+    const d=daysLeft(p.expiry_date);
+    const dStr=d<0?`${Math.abs(d)} gün əvvəl bitib`:`${d} gün qalıb`;
+    return `• ${p.name} | MHD: ${fmtDate(p.expiry_date)} | ${dStr}`;
+  }).join('\n');
+  try {
+    if (!window.emailjs) {
+      await new Promise((res,rej) => {
+        const sc=document.createElement('script');
+        sc.src='https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js';
+        sc.onload=res; sc.onerror=rej; document.head.appendChild(sc);
+      });
+    }
+    emailjs.init(k);
+    await emailjs.send(s,tp,{to_email:email,subject:'StokSkan — MHD/MHT Siyahısı '+new Date().toLocaleDateString(),message:lines});
+    toast('📨 Email göndərildi: '+email,'success');
+  } catch(e) { toast('Email xətası: '+(e.text||e.message),'error'); }
+}
+
+// ==================== TOAST ====================
+function toast(msg,type='info') {
+  const c=document.getElementById('toastWrap');
+  const el=document.createElement('div');
+  el.className=`toast ${type}`; el.textContent=msg; c.appendChild(el);
+  setTimeout(()=>{ el.style.cssText='opacity:0;transform:translateX(100%);transition:.3s'; setTimeout(()=>el.remove(),300); },3500);
+}
+
+// ==================== INIT ====================
+applyTheme();
+applyLang();
+waitFb(()=>{/* auth listener handles everything */});
 </script>
 </body>
 </html>
