@@ -334,6 +334,15 @@ nav{position:sticky;top:0;z-index:100;background:var(--nav-bg);backdrop-filter:b
       <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.1 29.3 35 24 35c-6.1 0-11-4.9-11-11s4.9-11 11-11c2.8 0 5.3 1 7.2 2.7l5.7-5.7C33.5 7.1 29 5 24 5 13 5 4 14 4 25s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c2.8 0 5.3 1 7.2 2.7l5.7-5.7C33.5 7.1 29 5 24 5 16.3 5 9.7 9.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 45c5 0 9.4-1.9 12.8-4.9l-5.9-5c-1.8 1.3-4.2 2-6.9 2-5.2 0-9.6-3.5-11.2-8.3l-6.6 5.1C9.6 40.8 16.3 45 24 45z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.5l5.9 5C41.2 35.5 44 31 44 25c0-1.3-.1-2.6-.4-3.9z"/></svg>
       Google ile Giriş / Sign in / Anmelden
     </button>
+    <div style="display:flex;align-items:center;gap:10px;margin:16px 0 4px;color:var(--text2);font-size:12px;">
+      <div style="flex:1;height:1px;background:var(--border);"></div>
+      və ya / or / oder
+      <div style="flex:1;height:1px;background:var(--border);"></div>
+    </div>
+    <button class="google-btn" onclick="enterGuestMode()" style="background:transparent;border-color:var(--border);color:var(--text2);font-size:13px;margin-top:4px;">
+      👤 Qonaq / Guest / Gast
+    </button>
+    <div style="color:var(--text2);font-size:11px;margin-top:10px;opacity:0.7;">Qonaq modda məlumatlar yalnız bu cihazda saxlanır<br>Guest mode: data stored locally only</div>
   </div>
 </div>
 
@@ -644,6 +653,34 @@ function toggleTheme() { dark = !dark; applyTheme(); }
 function onDarkToggle() { dark = document.getElementById('darkToggle').checked; applyTheme(); }
 
 // ==================== AUTH ====================
+function enterGuestMode() {
+  window.currentUser = { email: 'guest', displayName: 'Qonaq', photoURL: '', isGuest: true };
+  window.fbGetAll = async () => JSON.parse(localStorage.getItem('guest_products') || '[]');
+  window.fbSave = async (product) => {
+    const prods = JSON.parse(localStorage.getItem('guest_products') || '[]');
+    const idx = prods.findIndex(p => p.barcode === product.barcode);
+    const now = new Date().toLocaleString('az-AZ');
+    product.updatedAt = now; product.updatedBy = 'guest';
+    if (!product.createdAt) { product.createdAt = now; product.createdBy = 'guest'; }
+    if (idx >= 0) prods[idx] = product; else prods.push(product);
+    localStorage.setItem('guest_products', JSON.stringify(prods));
+    return product;
+  };
+  window.fbDelete = async (barcode) => {
+    const prods = JSON.parse(localStorage.getItem('guest_products') || '[]');
+    localStorage.setItem('guest_products', JSON.stringify(prods.filter(p => p.barcode !== barcode)));
+  };
+  window.fbSaveSettings = async () => {};
+  window.fbGetSettings = async () => null;
+  window.fbUploadImage = async () => null;
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('userChip').style.display = 'flex';
+  document.getElementById('userName').textContent = 'Qonaq';
+  document.getElementById('userAvatar').src = '';
+  loadAll(); loadEjsConfig();
+  toast('Qonaq modu — məlumatlar yalnız bu cihazda saxlanır', 'warning');
+}
+
 document.addEventListener('authChange', e => {
   const user = e.detail;
   if (user) {
@@ -652,7 +689,7 @@ document.addEventListener('authChange', e => {
     document.getElementById('userName').textContent = user.displayName?.split(' ')[0] || user.email;
     document.getElementById('userAvatar').src = user.photoURL || '';
     loadAll(); loadSettings(); loadEjsConfig();
-  } else {
+  } else if (!window.currentUser?.isGuest) {
     document.getElementById('loginScreen').style.display = 'flex';
     document.getElementById('userChip').style.display = 'none';
   }
