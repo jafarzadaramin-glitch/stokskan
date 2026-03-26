@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>StokSkan</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700;800&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
 
@@ -86,17 +86,19 @@
 
 <style>
 :root {
-  --bg:#080810;--surface:#10101c;--surface2:#18182a;--border:#252538;
-  --accent:#6c5ce7;--accent2:#a855f7;--green:#00d68f;--yellow:#fbbf24;
-  --red:#f43f5e;--orange:#fb923c;--text:#e2e2f0;--text2:#7070a0;
-  --nav-bg:rgba(8,8,16,0.94);--shadow:0 4px 24px rgba(0,0,0,.4);
-  --mono:'Space Mono',monospace;--sans:'Syne',sans-serif;
+  --bg:#0f1117;--surface:#1a1d2e;--surface2:#232640;--border:#2e3250;
+  --accent:#4f7fff;--accent2:#7c5cfc;--green:#10b981;--yellow:#f59e0b;
+  --red:#ef4444;--orange:#f97316;--text:#e8eaf6;--text2:#7b82b4;
+  --nav-bg:rgba(15,17,23,0.97);--shadow:0 8px 32px rgba(0,0,0,.5);
+  --card-radius:16px;--radius:10px;
+  --mono:'Space Mono',monospace;--sans:'Inter',sans-serif;
 }
 body.light {
-  --bg:#f0f0f8;--surface:#ffffff;--surface2:#eaeaf6;--border:#d0d0e8;
-  --text:#1a1a2e;--text2:#5555a0;--nav-bg:rgba(240,240,248,0.96);--shadow:0 4px 24px rgba(108,92,231,.12);
+  --bg:#f4f6fb;--surface:#ffffff;--surface2:#eef0f8;--border:#dde1f0;
+  --text:#1e2240;--text2:#6b74a8;--nav-bg:rgba(255,255,255,0.97);
+  --shadow:0 4px 20px rgba(79,127,255,.10);
 }
-body.light::before { background-image:linear-gradient(rgba(108,92,231,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(108,92,231,0.05) 1px,transparent 1px) !important; }
+body.light::before { background-image:linear-gradient(rgba(79,127,255,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(79,127,255,0.04) 1px,transparent 1px) !important; }
 
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;transition:background .3s,color .3s;}
@@ -104,15 +106,15 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 
 /* LOGIN */
 #loginScreen{position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;align-items:center;justify-content:center;}
-.login-box{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:40px;text-align:center;max-width:360px;width:90%;box-shadow:var(--shadow);}
-.login-logo{font-family:var(--mono);font-size:30px;font-weight:700;margin-bottom:8px;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.login-box{background:var(--surface);border:1px solid var(--border);border-radius:24px;padding:36px 32px;text-align:center;max-width:380px;width:92%;box-shadow:0 24px 80px rgba(0,0,0,.5);}
+.login-logo{font-family:var(--mono);font-size:28px;font-weight:700;margin-bottom:6px;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-0.5px;}
 .login-sub{color:var(--text2);font-size:13px;margin-bottom:28px;line-height:1.6;}
 .google-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:13px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:var(--sans);font-size:15px;font-weight:700;cursor:pointer;transition:all .2s;}
 .google-btn:hover{border-color:var(--accent);background:rgba(108,92,231,.08);transform:translateY(-1px);}
 
 /* NAV */
-nav{position:sticky;top:0;z-index:100;background:var(--nav-bg);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);height:60px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;gap:8px;}
-.logo{font-family:var(--mono);font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px;flex-shrink:0;}
+nav{position:sticky;top:0;z-index:100;background:var(--nav-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:1px solid var(--border);height:64px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;gap:8px;}
+.logo{font-family:var(--mono);font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;flex-shrink:0;}
 .logo-pulse{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent);animation:pulse 2s infinite;}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
 .nav-tabs{display:flex;gap:2px;}
@@ -133,19 +135,17 @@ nav{position:sticky;top:0;z-index:100;background:var(--nav-bg);backdrop-filter:b
 /* MAIN */
 .main{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:20px 14px;}
 
-/* STATS */
-.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;}
-@media(max-width:700px){.stats-row{grid-template-columns:repeat(2,1fr);}.nav-tabs{display:none;}}
-.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;overflow:hidden;position:relative;}
-.stat-card::after{content:'';position:absolute;bottom:0;left:0;right:0;height:3px;}
-.stat-card.s-total::after{background:linear-gradient(90deg,var(--accent),var(--accent2));}
-.stat-card.s-expired::after{background:var(--red);}
-.stat-card.s-critical::after{background:var(--orange);}
-.stat-card.s-warning::after{background:var(--yellow);}
-.stat-num{font-family:var(--mono);font-size:30px;font-weight:700;line-height:1;margin-bottom:5px;}
-.s-total .stat-num{color:var(--accent)}.s-expired .stat-num{color:var(--red)}
-.s-critical .stat-num{color:var(--orange)}.s-warning .stat-num{color:var(--yellow)}
-.stat-label{font-size:11px;color:var(--text2);font-weight:700;text-transform:uppercase;letter-spacing:.5px;}
+/* HERO BANNER */
+.hero-banner{background:linear-gradient(135deg,var(--accent) 0%,var(--accent2) 100%);border-radius:var(--card-radius);padding:24px 22px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;box-shadow:0 8px 32px rgba(79,127,255,0.25);}
+.hero-left{}
+.hero-label{font-size:12px;font-weight:600;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;}
+.hero-num{font-family:var(--mono);font-size:42px;font-weight:700;color:#fff;line-height:1;}
+.hero-right{display:flex;gap:10px;flex-wrap:wrap;}
+.hero-chip{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:99px;font-size:13px;font-weight:700;background:rgba(255,255,255,.15);color:#fff;backdrop-filter:blur(4px);}
+.hero-chip.expired{background:rgba(239,68,68,.25);}
+.hero-chip.critical{background:rgba(249,115,22,.25);}
+.hero-chip.warning{background:rgba(245,158,11,.25);}
+@media(max-width:700px){.hero-banner{padding:18px 16px;}.hero-num{font-size:34px;}.nav-tabs{display:none;}}
 
 /* TAB */
 .tab-content{display:none;}.tab-content.active{display:block;}
@@ -153,7 +153,7 @@ nav{position:sticky;top:0;z-index:100;background:var(--nav-bg);backdrop-filter:b
 /* SCAN GRID */
 .scan-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
 @media(max-width:800px){.scan-grid{grid-template-columns:1fr;}}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--card-radius);padding:22px;}
 .card-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text2);margin-bottom:14px;}
 
 /* FULLSCREEN SCANNER */
@@ -229,7 +229,7 @@ nav{position:sticky;top:0;z-index:100;background:var(--nav-bg);backdrop-filter:b
 
 /* PRODUCTS */
 .products-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;}
-.pcard{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:all .2s;}
+.pcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden;transition:all .2s;}
 .pcard:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--shadow);}
 .pcard.expired{border-color:rgba(244,63,94,.4)}
 .pcard.critical{border-color:rgba(251,146,60,.4)}
@@ -266,7 +266,7 @@ nav{position:sticky;top:0;z-index:100;background:var(--nav-bg);backdrop-filter:b
 .abc{font-family:var(--mono);font-size:10px;color:var(--text2);margin-top:3px}
 
 /* SETTINGS */
-.settings-section{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;margin-bottom:18px;}
+.settings-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--card-radius);padding:22px;margin-bottom:18px;}
 .settings-title{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:var(--text2);margin-bottom:16px;}
 .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border);}
 .toggle-row:last-child{border-bottom:none;padding-bottom:0;}
@@ -329,20 +329,25 @@ nav{position:sticky;top:0;z-index:100;background:var(--nav-bg);backdrop-filter:b
 <div id="loginScreen">
   <div class="login-box">
     <div class="login-logo">📦 StokSkan</div>
-    <div class="login-sub">Gmail ilə daxil olun<br>Sign in with Gmail<br>Mit Gmail anmelden</div>
+    <div class="login-sub" id="loginSub">Gmail ilə daxil olun</div>
+    <div style="display:flex;justify-content:center;gap:8px;margin-bottom:22px;">
+      <button onclick="setLang('az')" id="llaz" class="lang-btn" style="font-size:13px;padding:6px 14px">AZ</button>
+      <button onclick="setLang('en')" id="llen" class="lang-btn" style="font-size:13px;padding:6px 14px">EN</button>
+      <button onclick="setLang('de')" id="llde" class="lang-btn" style="font-size:13px;padding:6px 14px">DE</button>
+    </div>
     <button class="google-btn" onclick="window.fbSignIn()">
       <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.1 29.3 35 24 35c-6.1 0-11-4.9-11-11s4.9-11 11-11c2.8 0 5.3 1 7.2 2.7l5.7-5.7C33.5 7.1 29 5 24 5 13 5 4 14 4 25s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c2.8 0 5.3 1 7.2 2.7l5.7-5.7C33.5 7.1 29 5 24 5 16.3 5 9.7 9.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 45c5 0 9.4-1.9 12.8-4.9l-5.9-5c-1.8 1.3-4.2 2-6.9 2-5.2 0-9.6-3.5-11.2-8.3l-6.6 5.1C9.6 40.8 16.3 45 24 45z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.5l5.9 5C41.2 35.5 44 31 44 25c0-1.3-.1-2.6-.4-3.9z"/></svg>
-      Google ile Giriş / Sign in / Anmelden
+      <span id="loginBtnTxt">Google ilə Giriş</span>
     </button>
     <div style="display:flex;align-items:center;gap:10px;margin:16px 0 4px;color:var(--text2);font-size:12px;">
       <div style="flex:1;height:1px;background:var(--border);"></div>
-      və ya / or / oder
+      <span id="loginOrTxt">və ya</span>
       <div style="flex:1;height:1px;background:var(--border);"></div>
     </div>
     <button class="google-btn" onclick="enterGuestMode()" style="background:transparent;border-color:var(--border);color:var(--text2);font-size:13px;margin-top:4px;">
-      👤 Qonaq / Guest / Gast
+      👤 <span id="loginGuestTxt">Qonaq kimi daxil ol</span>
     </button>
-    <div style="color:var(--text2);font-size:11px;margin-top:10px;opacity:0.7;">Qonaq modda məlumatlar yalnız bu cihazda saxlanır<br>Guest mode: data stored locally only</div>
+    <div style="color:var(--text2);font-size:11px;margin-top:12px;opacity:0.65;" id="loginGuestNote">Qonaq modda məlumatlar yalnız bu cihazda saxlanır</div>
   </div>
 </div>
 
@@ -369,7 +374,8 @@ nav{position:sticky;top:0;z-index:100;background:var(--nav-bg);backdrop-filter:b
   <div class="nav-right">
     <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">🌙</button>
     <button class="lang-btn" id="langBtn" onclick="cycleLang()">AZ</button>
-    <div class="user-chip" onclick="window.fbSignOut()" id="userChip" style="display:none">
+    <button class="lang-btn" id="signInBtn" onclick="showLoginFromApp()" style="display:none;border-color:var(--accent);color:var(--accent)">🔑</button>
+    <div class="user-chip" id="userChip" style="display:none" onclick="handleUserChipClick()">
       <img class="user-avatar" id="userAvatar" src="" alt="">
       <span class="user-name" id="userName"></span>
     </div>
@@ -377,11 +383,16 @@ nav{position:sticky;top:0;z-index:100;background:var(--nav-bg);backdrop-filter:b
 </nav>
 
 <div class="main">
-  <div class="stats-row">
-    <div class="stat-card s-total"><div class="stat-num" id="sTotal">—</div><div class="stat-label" data-k="stat_total">Cəmi</div></div>
-    <div class="stat-card s-expired"><div class="stat-num" id="sExpired">—</div><div class="stat-label" data-k="stat_expired">Bitib</div></div>
-    <div class="stat-card s-critical"><div class="stat-num" id="sCritical">—</div><div class="stat-label" data-k="stat_critical">Kritik 7g</div></div>
-    <div class="stat-card s-warning"><div class="stat-num" id="sWarning">—</div><div class="stat-label" data-k="stat_warning">Diqqət 30g</div></div>
+  <div class="hero-banner">
+    <div class="hero-left">
+      <div class="hero-label" data-k="stat_total">Ümumi Məhsul</div>
+      <div class="hero-num" id="sTotal">—</div>
+    </div>
+    <div class="hero-right">
+      <span class="hero-chip expired"><span id="sExpired">—</span> <span data-k="stat_expired">Bitib</span></span>
+      <span class="hero-chip critical"><span id="sCritical">—</span> <span data-k="stat_critical">Kritik</span></span>
+      <span class="hero-chip warning"><span id="sWarning">—</span> <span data-k="stat_warning">Diqqət</span></span>
+    </div>
   </div>
 
   <!-- SCAN TAB -->
@@ -635,7 +646,26 @@ function applyLang() {
   document.querySelectorAll('[data-k]').forEach(el => { el.textContent = _(el.dataset.k); });
   document.getElementById('langBtn').textContent = lang.toUpperCase();
   document.getElementById('scanHint').textContent = _('scan_hint');
-  document.getElementById('searchInp').placeholder = _('filter_all') + '...';
+  const si = document.getElementById('searchInp'); if(si) si.placeholder = _('filter_all') + '...';
+  // Login screen texts
+  const subMap = {az:'Gmail ilə daxil olun', en:'Sign in with Gmail', de:'Mit Gmail anmelden'};
+  const btnMap = {az:'Google ilə Giriş', en:'Sign in with Google', de:'Mit Google anmelden'};
+  const orMap  = {az:'və ya', en:'or', de:'oder'};
+  const guestMap = {az:'Qonaq kimi daxil ol', en:'Continue as Guest', de:'Als Gast fortfahren'};
+  const guestNote = {az:'Qonaq modda məlumatlar yalnız bu cihazda saxlanır', en:'Guest mode: data stored on this device only', de:'Gastmodus: Daten nur auf diesem Gerät gespeichert'};
+  const s = document.getElementById('loginSub'); if(s) s.textContent = subMap[lang]||subMap.de;
+  const b = document.getElementById('loginBtnTxt'); if(b) b.textContent = btnMap[lang]||btnMap.de;
+  const o = document.getElementById('loginOrTxt'); if(o) o.textContent = orMap[lang]||orMap.de;
+  const g = document.getElementById('loginGuestTxt'); if(g) g.textContent = guestMap[lang]||guestMap.de;
+  const n = document.getElementById('loginGuestNote'); if(n) n.textContent = guestNote[lang]||guestNote.de;
+  // Highlight active lang btn on login screen
+  ['az','en','de'].forEach(l => {
+    const btn = document.getElementById('ll'+l);
+    if(btn) btn.style.borderColor = l===lang ? 'var(--accent)' : '';
+    if(btn) btn.style.color = l===lang ? 'var(--accent)' : '';
+  });
+  // Update lbl_expiry dynamically based on lang
+  document.querySelectorAll('[data-k="lbl_expiry"]').forEach(el => { el.textContent = _(el.dataset.k); });
 }
 function cycleLang() { lang = {az:'en',en:'de',de:'az'}[lang]; localStorage.setItem('lang',lang); applyLang(); renderProducts(); renderAlerts(); }
 function setLang(l) { lang = l; localStorage.setItem('lang',l); applyLang(); renderProducts(); renderAlerts(); }
@@ -656,6 +686,11 @@ function onDarkToggle() { dark = document.getElementById('darkToggle').checked; 
 function enterGuestMode() {
   window.currentUser = { email: 'guest', displayName: 'Qonaq', photoURL: '', isGuest: true };
   window.fbGetAll = async () => JSON.parse(localStorage.getItem('guest_products') || '[]');
+  window.fbScan = async (barcode) => {
+    const prods = JSON.parse(localStorage.getItem('guest_products') || '[]');
+    const p = prods.find(x => x.barcode === barcode);
+    return p ? { exists: true, ...p } : { exists: false, barcode };
+  };
   window.fbSave = async (product) => {
     const prods = JSON.parse(localStorage.getItem('guest_products') || '[]');
     const idx = prods.findIndex(p => p.barcode === product.barcode);
@@ -675,10 +710,26 @@ function enterGuestMode() {
   window.fbUploadImage = async () => null;
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('userChip').style.display = 'flex';
+  document.getElementById('signInBtn').style.display = 'flex';
   document.getElementById('userName').textContent = 'Qonaq';
   document.getElementById('userAvatar').src = '';
   loadAll(); loadEjsConfig();
-  toast('Qonaq modu — məlumatlar yalnız bu cihazda saxlanır', 'warning');
+  toast('👤 Qonaq modu — məlumatlar yalnız bu cihazda saxlanır', 'warning');
+}
+
+function showLoginFromApp() {
+  window.currentUser = null;
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('userChip').style.display = 'none';
+  document.getElementById('signInBtn').style.display = 'none';
+}
+
+function handleUserChipClick() {
+  if (window.currentUser?.isGuest) {
+    showLoginFromApp();
+  } else {
+    if (confirm('Çıxmaq istəyirsiniz? / Sign out? / Abmelden?')) window.fbSignOut();
+  }
 }
 
 document.addEventListener('authChange', e => {
@@ -686,12 +737,14 @@ document.addEventListener('authChange', e => {
   if (user) {
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('userChip').style.display = 'flex';
+    document.getElementById('signInBtn').style.display = 'none';
     document.getElementById('userName').textContent = user.displayName?.split(' ')[0] || user.email;
     document.getElementById('userAvatar').src = user.photoURL || '';
     loadAll(); loadSettings(); loadEjsConfig();
   } else if (!window.currentUser?.isGuest) {
     document.getElementById('loginScreen').style.display = 'flex';
     document.getElementById('userChip').style.display = 'none';
+    document.getElementById('signInBtn').style.display = 'none';
   }
 });
 
@@ -990,7 +1043,7 @@ function renderProducts() {
         <div class="pbarcode">${p.barcode}</div>
         ${p.updatedBy?`<div class="pby">${_('by')} ${p.updatedBy}</div>`:''}
         <div class="pexpiry">
-          <span class="exp-date">${_('expiry_lbl')} ${fmtDate(p.expiry_date)}</span>
+          <span class="exp-date">${lang==='de'?'MHD:':lang==='en'?'Expiry:':'MHT:'} ${fmtDate(p.expiry_date)}</span>
           <span class="sbadge ${p.expiry_date?st:'none'}">${p.expiry_date?(sT[st]||'—'):'—'}</span>
         </div>
         ${dStr?`<div class="days-info" style="color:${sC[st]||'var(--text2)'}">${dStr}</div>`:''}
