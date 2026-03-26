@@ -431,7 +431,7 @@ nav{position:sticky;top:0;z-index:100;background:var(--nav-bg);backdrop-filter:b
           <label class="lbl" data-k="lbl_photo">Şəkil / Foto / Bild</label>
           <div class="img-picker">
             <input type="file" accept="image/*" capture="environment" id="imgFile" onchange="onImgFile(this,'imgPreview','imgActions')">
-            <div class="img-picker-lbl" data-k="photo_hint">📷 Şəkil çək və ya seç (max 250KB)</div>
+            <div class="img-picker-lbl" data-k="photo_hint">📷 Şəkil çək və ya seç</div>
             <img class="img-preview" id="imgPreview" alt="">
           </div>
           <div class="img-actions" id="imgActions" style="display:none">
@@ -504,7 +504,21 @@ nav{position:sticky;top:0;z-index:100;background:var(--nav-bg);backdrop-filter:b
 
     <div class="settings-section">
       <div class="settings-title" data-k="set_team">👥 Qrup İşi</div>
-      <div class="toggle-sub" style="margin-bottom:14px" data-k="team_note">Eyni Firebase layihəsinə Gmail ilə daxil olan hər kəs (5+ nəfər) məlumatları görə, əlavə edə və redaktə edə bilər. Xüsusi dəvət lazım deyil.</div>
+      <div class="toggle-sub" style="margin-bottom:14px" data-k="team_note">Eyni Firebase layihəsinə Gmail ilə daxil olan hər kəs məlumatları görə, əlavə edə və redaktə edə bilər.</div>
+
+      <div style="margin-bottom:16px;">
+        <label class="lbl">📧 İş yoldaşını dəvət et / Invite teammate</label>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <input type="email" class="inp" id="inviteEmail" placeholder="ortak@gmail.com" style="flex:1;">
+          <button class="btn btn-primary" style="width:auto;padding:9px 16px;white-space:nowrap;" onclick="inviteMember()">➕ Dəvət</button>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-top:6px;" id="inviteNote">
+          Dəvət edilən şəxs bu sayta daxil olub eyni Firebase bazasına qoşulacaq. Barkod app ID: <code style="font-family:var(--mono);font-size:10px;background:var(--surface2);padding:2px 6px;border-radius:4px;">barcodeapp-1ba92</code>
+        </div>
+        <div id="inviteList" style="margin-top:10px;"></div>
+      </div>
+
+      <label class="lbl" style="margin-bottom:8px;">👥 Aktiv üzvlər / Active members</label>
       <div class="members-list" id="membersList"><div class="loading"><div class="spin"></div></div></div>
     </div>
 
@@ -581,7 +595,7 @@ const TR = {
     scan_title:'📷 Barkod Skan',open_camera:'Kameranı Aç — Tam Ekran',manual_entry:'Əl ilə daxil et',check:'Yoxla',
     add_product:'➕ Məhsul Əlavə Et',lbl_barcode:'Barkod *',lbl_name:'Məhsulun Adı *',
     lbl_expiry:'MHT (Son İstifadə Tarixi)',lbl_notes:'Qeydlər',lbl_photo:'Şəkil',
-    photo_hint:'📷 Şəkil çək və ya seç (max 250KB)',btn_change:'🔄 Dəyiş',btn_remove:'🗑 Sil',
+    photo_hint:'📷 Şəkil çək və ya seç',btn_change:'🔄 Dəyiş',btn_remove:'🗑 Sil',
     btn_save:'💾 Yadda Saxla',exists_title:'Məhsul Mövcuddur',btn_update:'✏️ Yenilə',btn_cancel:'Ləğv Et',
     filter_all:'Hamısı',filter_expired:'Bitib',filter_critical:'Kritik',filter_warning:'Diqqət',
     edit_title:'✏️ Redaktə Et',
@@ -602,7 +616,7 @@ const TR = {
     scan_title:'📷 Barcode Scan',open_camera:'Open Camera — Fullscreen',manual_entry:'Enter manually',check:'Check',
     add_product:'➕ Add Product',lbl_barcode:'Barcode *',lbl_name:'Product Name *',
     lbl_expiry:'Expiry Date',lbl_notes:'Notes',lbl_photo:'Photo',
-    photo_hint:'📷 Take or select photo (max 250KB)',btn_change:'🔄 Change',btn_remove:'🗑 Remove',
+    photo_hint:'📷 Take or select a photo',btn_change:'🔄 Change',btn_remove:'🗑 Remove',
     btn_save:'💾 Save',exists_title:'Product Exists',btn_update:'✏️ Update',btn_cancel:'Cancel',
     filter_all:'All',filter_expired:'Expired',filter_critical:'Critical',filter_warning:'Warning',
     edit_title:'✏️ Edit Product',
@@ -623,7 +637,7 @@ const TR = {
     scan_title:'📷 Barcode scannen',open_camera:'Kamera öffnen — Vollbild',manual_entry:'Manuell eingeben',check:'Prüfen',
     add_product:'➕ Produkt hinzufügen',lbl_barcode:'Barcode *',lbl_name:'Produktname *',
     lbl_expiry:'Ablaufdatum (MHD)',lbl_notes:'Notizen',lbl_photo:'Foto',
-    photo_hint:'📷 Foto aufnehmen oder auswählen (max 250KB)',btn_change:'🔄 Ändern',btn_remove:'🗑 Entfernen',
+    photo_hint:'📷 Foto aufnehmen oder auswählen',btn_change:'🔄 Ändern',btn_remove:'🗑 Entfernen',
     btn_save:'💾 Speichern',exists_title:'Produkt vorhanden',btn_update:'✏️ Aktualisieren',btn_cancel:'Abbrechen',
     filter_all:'Alle',filter_expired:'Abgelaufen',filter_critical:'Kritisch',filter_warning:'Warnung',
     edit_title:'✏️ Produkt bearbeiten',
@@ -1001,8 +1015,15 @@ async function saveProduct() {
   let image_url=existProd?.image_url||null;
   if (pendImg) {
     toast(_('uploading'),'info');
-    try { image_url=await window.fbUploadImage(barcode,pendImg); }
-    catch(e) { toast('Şəkil xətası: '+e.message,'error'); return; }
+    try {
+      const result = await window.fbUploadImage(barcode, pendImg);
+      if (result) image_url = result;
+      // if null (guest mode), keep image as base64 locally
+      else image_url = pendImg;
+    } catch(e) {
+      toast('⚠️ Şəkil yüklənmədi, məhsul şəkilsiz saxlanır','warning');
+      image_url = null;
+    }
   }
   const ex=allProducts.find(p=>p.barcode===barcode);
   await window.fbSave({barcode,name,expiry_date:expiry||null,notes,image_url,createdAt:ex?.createdAt||null,createdBy:ex?.createdBy||null});
@@ -1082,8 +1103,13 @@ async function updateProduct() {
   let image_url=editRemoveImg?null:(oldImg||null);
   if (editPendImg) {
     toast(_('uploading'),'info');
-    try { image_url=await window.fbUploadImage(barcode,editPendImg); }
-    catch(e) { toast('Şəkil xətası: '+e.message,'error'); return; }
+    try {
+      const result = await window.fbUploadImage(barcode, editPendImg);
+      if (result) image_url = result;
+      else image_url = editPendImg;
+    } catch(e) {
+      toast('⚠️ Şəkil yüklənmədi, köhnə şəkil saxlanır','warning');
+    }
   }
   const ex=allProducts.find(p=>p.barcode===barcode);
   await window.fbSave({barcode,name,expiry_date:expiry||null,notes,image_url,createdAt:ex?.createdAt||null,createdBy:ex?.createdBy||null});
@@ -1219,13 +1245,44 @@ function saveEjsConfig() {
   toast('✅ '+_('saved'),'success');
 }
 
+function inviteMember() {
+  const email = document.getElementById('inviteEmail').value.trim().toLowerCase();
+  if (!email || !email.includes('@')) { toast('Düzgün email daxil edin','error'); return; }
+  const invites = JSON.parse(localStorage.getItem('invited_members') || '[]');
+  if (invites.includes(email)) { toast('Artıq əlavə edilib','warning'); return; }
+  invites.push(email);
+  localStorage.setItem('invited_members', JSON.stringify(invites));
+  document.getElementById('inviteEmail').value = '';
+  renderInviteList();
+  toast('✅ ' + email + ' əlavə edildi','success');
+}
+
+function renderInviteList() {
+  const invites = JSON.parse(localStorage.getItem('invited_members') || '[]');
+  const container = document.getElementById('inviteList');
+  if (!invites.length) { container.innerHTML = ''; return; }
+  container.innerHTML = '<div style="font-size:11px;color:var(--text2);margin-bottom:6px;">Dəvət siyahısı:</div>' +
+    invites.map(em => `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--surface2);border-radius:8px;margin-bottom:4px;font-size:12px;">
+      <span>📧 ${em}</span>
+      <button onclick="removeInvite('${em}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;">✕</button>
+    </div>`).join('');
+}
+
+function removeInvite(email) {
+  let invites = JSON.parse(localStorage.getItem('invited_members') || '[]');
+  invites = invites.filter(e => e !== email);
+  localStorage.setItem('invited_members', JSON.stringify(invites));
+  renderInviteList();
+}
+
 function loadMembers() {
-  const emails=[...new Set(allProducts.flatMap(p=>[p.updatedBy,p.createdBy]).filter(Boolean))];
+  renderInviteList();
+  const activeEmails=[...new Set(allProducts.flatMap(p=>[p.updatedBy,p.createdBy]).filter(e=>e&&e!=='guest'))];
   const list=document.getElementById('membersList');
-  if (!emails.length) { list.innerHTML=`<div style="color:var(--text2);font-size:13px">—</div>`; return; }
-  list.innerHTML=emails.map(em=>{
+  if (!activeEmails.length) { list.innerHTML=`<div style="color:var(--text2);font-size:13px">Hələ heç kim daxil olmayıb</div>`; return; }
+  list.innerHTML=activeEmails.map(em=>{
     const init=em[0].toUpperCase(), isMe=em===window.currentUser?.email;
-    return `<div class="member-item"><div class="member-av">${init}</div><span>${em}${isMe?' (siz / you / Sie)':''}</span></div>`;
+    return `<div class="member-item"><div class="member-av">${init}</div><span>${em}${isMe?' ✓ (siz)':''}</span></div>`;
   }).join('');
 }
 
