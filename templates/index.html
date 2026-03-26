@@ -14,7 +14,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
   import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-  import { getStorage, ref as sRef, uploadString, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+  import { getStorage, ref as sRef, uploadString, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyCdwEsg6YoP9UX4FULvSzpkj2MuzM4MNXI",
@@ -74,10 +74,24 @@
     return snap.exists() ? snap.data() : null;
   };
 
-  window.fbUploadImage = async (barcode, dataUrl) => {
-    const ref = sRef(storage, `products/${barcode}.jpg`);
-    await uploadString(ref, dataUrl.split(',')[1], 'base64', { contentType: 'image/jpeg' });
-    return await getDownloadURL(ref);
+  window.fbUploadImage = (barcode, dataUrl) => {
+    return new Promise((resolve, reject) => {
+      const ref = sRef(storage, `products/${barcode}.jpg`);
+      const b64 = dataUrl.split(',')[1];
+      const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      const task = uploadBytesResumable(ref, bytes, { contentType: 'image/jpeg' });
+      task.on('state_changed',
+        snap => {
+          const pct = Math.round(snap.bytesTransferred / snap.totalBytes * 100);
+          showUploadProgress(pct);
+        },
+        err => { hideUploadProgress(); reject(err); },
+        async () => {
+          hideUploadProgress();
+          resolve(await getDownloadURL(task.snapshot.ref));
+        }
+      );
+    });
   };
 
   window.fbReady = true;
@@ -586,6 +600,15 @@ nav{position:sticky;top:0;z-index:100;background:var(--nav-bg);backdrop-filter:b
 
 <div class="toast-wrap" id="toastWrap"></div>
 
+<!-- UPLOAD PROGRESS -->
+<div id="uploadProgressWrap" style="display:none;position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 22px;min-width:240px;max-width:90vw;box-shadow:var(--shadow);text-align:center;">
+  <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px;" id="uploadProgressLabel">📤 Şəkil yüklənir...</div>
+  <div style="background:var(--surface2);border-radius:99px;height:8px;overflow:hidden;">
+    <div id="uploadProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:99px;transition:width .2s ease;"></div>
+  </div>
+  <div style="font-size:12px;color:var(--text2);margin-top:8px;" id="uploadProgressPct">0%</div>
+</div>
+
 <script>
 // ==================== I18N ====================
 const TR = {
@@ -1014,7 +1037,6 @@ async function saveProduct() {
   if (!barcode||!name) { toast(_('err_required'),'error'); return; }
   let image_url=existProd?.image_url||null;
   if (pendImg) {
-    toast(_('uploading'),'info');
     try {
       const result = await window.fbUploadImage(barcode, pendImg);
       if (result) image_url = result;
@@ -1102,7 +1124,6 @@ async function updateProduct() {
   if (!name) { toast(_('err_name'),'error'); return; }
   let image_url=editRemoveImg?null:(oldImg||null);
   if (editPendImg) {
-    toast(_('uploading'),'info');
     try {
       const result = await window.fbUploadImage(barcode, editPendImg);
       if (result) image_url = result;
@@ -1310,6 +1331,25 @@ async function sendTestEmail() {
     await emailjs.send(s,tp,{to_email:email,subject:'StokSkan — MHD/MHT Siyahısı '+new Date().toLocaleDateString(),message:lines});
     toast('📨 Email göndərildi: '+email,'success');
   } catch(e) { toast('Email xətası: '+(e.text||e.message),'error'); }
+}
+
+// ==================== UPLOAD PROGRESS ====================
+function showUploadProgress(pct) {
+  const wrap = document.getElementById('uploadProgressWrap');
+  const bar = document.getElementById('uploadProgressBar');
+  const label = document.getElementById('uploadProgressLabel');
+  const pctEl = document.getElementById('uploadProgressPct');
+  wrap.style.display = 'block';
+  bar.style.width = pct + '%';
+  pctEl.textContent = pct + '%';
+  const langMap = {az:'Şəkil yüklənir...', en:'Uploading photo...', de:'Foto wird hochgeladen...'};
+  label.textContent = '📤 ' + (langMap[lang] || langMap.de);
+}
+function hideUploadProgress() {
+  const wrap = document.getElementById('uploadProgressWrap');
+  const bar = document.getElementById('uploadProgressBar');
+  bar.style.width = '100%';
+  setTimeout(() => { wrap.style.display = 'none'; bar.style.width = '0%'; }, 600);
 }
 
 // ==================== TOAST ====================
