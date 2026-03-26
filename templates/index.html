@@ -1251,9 +1251,12 @@ function loadEjsConfig() {
   const k=localStorage.getItem('ejs_key')||'';
   const s=localStorage.getItem('ejs_service')||'';
   const t=localStorage.getItem('ejs_template')||'';
-  document.getElementById('ejsKey').value=k;
-  document.getElementById('ejsService').value=s;
-  document.getElementById('ejsTemplate').value=t;
+  const ek=document.getElementById('ejsKey');
+  const es=document.getElementById('ejsService');
+  const et=document.getElementById('ejsTemplate');
+  if(ek) ek.value=k;
+  if(es) es.value=s;
+  if(et) et.value=t;
 }
 
 function saveEjsConfig() {
